@@ -1,0 +1,86 @@
+{
+  "name": "wo-ling",
+  "version": "1.3.0",
+  "description": "AI驱动的专业题目生成与答案分析工具",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable",
+    "dev": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["education", "ai", "quiz", "learning"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^36.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "@electron/remote": "^2.1.2",
+    "axios": "^1.9.0",
+    "bootstrap": "^5.3.6",
+    "marked": "^15.0.11",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.0"
+  },
+  "build": {
+    "appId": "com.woling.app",
+    "productName": "我灵",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "22-ico.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "portable": {
+      "artifactName": "我灵便携版.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "我灵"
+    },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/node_modules/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+      "!**/{appveyor.yml,.travis.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}",
+      "22-ico.ico",
+      "app.ico"
+    ],
+    "extraResources": [
+      {
+        "from": "22-ico.ico",
+        "to": "22-ico.ico"
+      },
+      {
+        "from": "app.ico",
+        "to": "app.ico"
+      }
+    ]
+  }
+}
