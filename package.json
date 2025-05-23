@@ -1,12 +1,13 @@
 {
   "name": "wo-ling",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "AI驱动的专业题目生成与答案分析工具",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win",
     "build:portable": "electron-builder --win portable",
+    "build:standalone": "electron-builder --win portable --config.portable.artifactName=我灵.exe",
     "dev": "electron .",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -30,7 +31,8 @@
     "appId": "com.woling.app",
     "productName": "我灵",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "./"
     },
     "win": {
       "target": [
@@ -43,18 +45,25 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "22-ico.ico",
-      "requestedExecutionLevel": "asInvoker"
+      "icon": "./22-ico.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "${productName}.exe"
     },
     "portable": {
-      "artifactName": "我灵便携版.exe"
+      "artifactName": "我灵便携版.exe",
+      "splashImage": "./22-ico.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "我灵"
+      "shortcutName": "我灵",
+      "installerIcon": "./22-ico.ico",
+      "uninstallerIcon": "./22-ico.ico",
+      "installerHeaderIcon": "./22-ico.ico",
+      "perMachine": false,
+      "displayLanguageSelector": false
     },
     "files": [
       "**/*",
@@ -69,18 +78,33 @@
       "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
       "!**/{appveyor.yml,.travis.yml,circle.yml}",
       "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}",
-      "22-ico.ico",
-      "app.ico"
+      "./22-ico.ico",
+      "./app.ico",
+      "index.html",
+      "styles/**/*",
+      "scripts/**/*"
     ],
     "extraResources": [
       {
-        "from": "22-ico.ico",
+        "from": "./22-ico.ico",
         "to": "22-ico.ico"
       },
       {
-        "from": "app.ico",
+        "from": "./app.ico",
         "to": "app.ico"
+      },
+      {
+        "from": "styles",
+        "to": "styles"
+      },
+      {
+        "from": "scripts",
+        "to": "scripts"
       }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/**/*.node"
     ]
   }
 }

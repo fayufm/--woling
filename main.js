@@ -36,18 +36,30 @@ function createWindow() {
   // 设置图标路径
   let iconPath = path.join(__dirname, '22-ico.ico');
   if (!fs.existsSync(iconPath)) {
-    log('警告: 主图标文件不存在:', iconPath);
-    // 尝试使用备选图标
-    iconPath = path.join(__dirname, 'app.ico');
+    log('根目录图标不存在，尝试从资源目录加载:', iconPath);
+    // 尝试从资源目录加载
+    iconPath = path.join(process.resourcesPath, '22-ico.ico');
     if (!fs.existsSync(iconPath)) {
-      log('警告: 备选图标文件也不存在');
-      // 设置为null，让Electron使用默认图标
-      iconPath = null;
-    } else {
-      log('使用备选图标文件:', iconPath);
+      log('资源目录图标不存在，尝试使用备选图标');
+      // 尝试使用备选图标
+      iconPath = path.join(__dirname, 'app.ico');
+      if (!fs.existsSync(iconPath)) {
+        iconPath = path.join(process.resourcesPath, 'app.ico');
+        if (!fs.existsSync(iconPath)) {
+          log('警告: 所有图标文件都不存在');
+          iconPath = null;
+        }
+      }
     }
-  } else {
-    log('图标文件存在:', iconPath);
+  }
+  log('使用图标文件:', iconPath);
+
+  // 记录图标路径到文件，以便进行调试
+  try {
+    fs.writeFileSync(path.join(app.getPath('userData'), 'icon-debug.txt'), 
+                    `图标路径: ${iconPath}\n文件存在: ${iconPath && fs.existsSync(iconPath)}\n时间: ${new Date().toISOString()}`);
+  } catch (e) {
+    log('写入调试文件失败:', e);
   }
   
   mainWindow = new BrowserWindow({
@@ -62,7 +74,8 @@ function createWindow() {
     },
     icon: iconPath,
     autoHideMenuBar: true,
-    frame: true
+    frame: true,
+    title: "我灵",
   });
 
   // 移除菜单栏
@@ -70,8 +83,57 @@ function createWindow() {
 
   // 设置任务栏图标
   if (process.platform === 'win32') {
-    app.setAppUserModelId('com.woling.app');
-    mainWindow.setIcon(iconPath);
+    app.setAppUserModelId(process.execPath); // 使用可执行文件路径作为AppUserModelID
+    
+    // 强制更新图标，多次设置以确保应用
+    if (iconPath) {
+      try {
+        // 使用NativeImage创建图标
+        const { nativeImage } = require('electron');
+        const icon = nativeImage.createFromPath(iconPath);
+        
+        if (!icon.isEmpty()) {
+          log('成功加载图标为NativeImage');
+          mainWindow.setIcon(icon);
+        } else {
+          log('NativeImage为空，直接设置图标路径');
+          mainWindow.setIcon(iconPath);
+        }
+        
+        // 通过reload刷新窗口使图标生效
+        mainWindow.webContents.once('did-finish-load', () => {
+          setTimeout(() => {
+            try {
+              // 再次应用图标
+              if (!icon.isEmpty()) {
+                mainWindow.setIcon(icon);
+              } else {
+                mainWindow.setIcon(iconPath);
+              }
+              
+              // 尝试设置任务栏图标
+              mainWindow.setOverlayIcon(icon, '我灵');
+              
+              app.setAsDefaultProtocolClient('woling'); // 设置应用为协议处理程序，有助于刷新图标关联
+              
+              // 使用每次运行时的唯一临时图标以避免Windows缓存图标
+              const tempIconPath = path.join(app.getPath('temp'), `woling-icon-${Date.now()}.ico`);
+              try {
+                fs.copyFileSync(iconPath, tempIconPath);
+                mainWindow.setIcon(nativeImage.createFromPath(tempIconPath) || tempIconPath);
+                log('使用临时图标:', tempIconPath);
+              } catch (err) {
+                log('无法创建临时图标:', err);
+              }
+            } catch (innerErr) {
+              log('设置图标时出错:', innerErr);
+            }
+          }, 500);
+        });
+      } catch (e) {
+        log('设置图标出错:', e);
+      }
+    }
   }
 
   // 启用@electron/remote
@@ -280,30 +342,107 @@ function ensureAppDirectories() {
 let userDataPath;
 
 // 当Electron完成初始化时创建窗口
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   log('应用准备就绪');
   
   // 移除应用级别的菜单栏
   Menu.setApplicationMenu(null);
+
+  // 添加图标详细检查和记录
+  const debugInfo = [];
+  debugInfo.push(`应用启动时间: ${new Date().toISOString()}`);
+  debugInfo.push(`应用路径: ${app.getAppPath()}`);
+  debugInfo.push(`资源路径: ${process.resourcesPath}`);
+  debugInfo.push(`用户数据路径: ${app.getPath('userData')}`);
+  debugInfo.push(`临时路径: ${app.getPath('temp')}`);
   
   // 设置应用图标
   try {
+    // 检查所有可能的图标位置
+    const iconLocations = [
+      { path: path.join(__dirname, '22-ico.ico'), name: '根目录22-ico.ico' },
+      { path: path.join(process.resourcesPath, '22-ico.ico'), name: '资源目录22-ico.ico' },
+      { path: path.join(__dirname, 'app.ico'), name: '根目录app.ico' },
+      { path: path.join(process.resourcesPath, 'app.ico'), name: '资源目录app.ico' }
+    ];
+    
+    debugInfo.push('\n图标文件检查:');
+    iconLocations.forEach(loc => {
+      const exists = fs.existsSync(loc.path);
+      debugInfo.push(`${loc.name}: ${exists ? '存在' : '不存在'} (${loc.path})`);
+      if (exists) {
+        try {
+          const stats = fs.statSync(loc.path);
+          debugInfo.push(`  大小: ${stats.size} 字节, 修改时间: ${stats.mtime}`);
+        } catch (e) {
+          debugInfo.push(`  无法获取文件信息: ${e.message}`);
+        }
+      }
+    });
+    
     let iconPath = path.join(__dirname, '22-ico.ico');
     if (!fs.existsSync(iconPath)) {
-      log('主图标文件不存在:', iconPath);
-      // 尝试使用备选图标
-      iconPath = path.join(__dirname, 'app.ico');
+      log('根目录图标不存在，尝试从资源目录加载:', iconPath);
+      debugInfo.push('根目录图标不存在，尝试从资源目录加载');
+      // 尝试从资源目录加载
+      iconPath = path.join(process.resourcesPath, '22-ico.ico');
       if (!fs.existsSync(iconPath)) {
-        log('备选图标文件也不存在');
-      } else {
-        log('使用备选图标文件:', iconPath);
+        log('资源目录图标不存在，尝试使用备选图标');
+        // 尝试使用备选图标
+        iconPath = path.join(__dirname, 'app.ico');
+        if (!fs.existsSync(iconPath)) {
+          iconPath = path.join(process.resourcesPath, 'app.ico');
+          if (!fs.existsSync(iconPath)) {
+            log('警告: 所有图标文件都不存在');
+            iconPath = null;
+          }
+        }
       }
     }
     
-    if (fs.existsSync(iconPath)) {
+    // 确保某个图标能用
+    if (!iconPath || !fs.existsSync(iconPath)) {
+      // 尝试创建一个临时图标文件
+      debugInfo.push('所有常规位置的图标文件都不存在，尝试创建临时图标');
+      
+      // 检查dist目录是否有图标
+      const distIconPath = path.join(path.dirname(app.getAppPath()), '22-ico.ico');
+      if (fs.existsSync(distIconPath)) {
+        debugInfo.push(`dist目录图标存在: ${distIconPath}`);
+        iconPath = distIconPath;
+      }
+    }
+    
+    // 写入调试信息
+    try {
+      const logPath = path.join(app.getPath('userData'), 'icon-debug.log');
+      fs.writeFileSync(logPath, debugInfo.join('\n'));
+      log('写入图标调试信息到:', logPath);
+    } catch (e) {
+      log('写入调试信息失败:', e);
+    }
+    
+    if (iconPath && fs.existsSync(iconPath)) {
       log('设置应用图标:', iconPath);
-      if (process.platform === 'darwin') {
-        app.dock.setIcon(iconPath);
+      
+      // 清理图标缓存
+      if (process.platform === 'win32') {
+        try {
+          // 将应用图标复制到临时目录以避免缓存问题
+          const tempIconPath = path.join(app.getPath('temp'), '22-ico-' + Date.now() + '.ico');
+          fs.copyFileSync(iconPath, tempIconPath);
+          log('复制图标到临时路径:', tempIconPath);
+          
+          // 设置应用ID和协议
+          app.setAppUserModelId(process.execPath);
+          app.setAsDefaultProtocolClient('woling');
+          
+          if (process.platform === 'darwin') {
+            app.dock.setIcon(iconPath);
+          }
+        } catch (e) {
+          log('设置应用程序图标出错:', e);
+        }
       }
     }
   } catch (error) {
