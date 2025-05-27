@@ -21,6 +21,30 @@ if (!gotTheLock) {
   return;
 }
 
+// 在Windows上设置应用ID和图标
+if (process.platform === 'win32') {
+  const appId = "com.woling.app";
+  log(`设置应用ID: ${appId}`);
+  app.setAppUserModelId(appId);
+  
+  // 尝试清除Windows图标缓存
+  try {
+    const exePath = process.execPath;
+    log('应用可执行文件路径:', exePath);
+    
+    // 在开发环境中可能是electron.exe
+    const isDevEnv = exePath.toLowerCase().includes('electron');
+    log('是否为开发环境:', isDevEnv);
+    
+    // 重新设置应用协议处理
+    app.removeAsDefaultProtocolClient('woling');
+    const success = app.setAsDefaultProtocolClient('woling');
+    log('设置协议处理程序:', success ? '成功' : '失败');
+  } catch (err) {
+    log('设置应用ID时出错:', err);
+  }
+}
+
 let mainWindow;
 
 function createWindow() {
@@ -33,31 +57,95 @@ function createWindow() {
   // 确保脚本文件存在
   ensureScriptFiles();
   
+  // 创建一个唯一的临时图标路径
+  const tempIconPath = path.join(app.getPath('temp'), `woling-icon-${Date.now()}.ico`);
+  log('临时图标路径:', tempIconPath);
+
   // 设置图标路径
-  let iconPath = path.join(__dirname, '22-ico.ico');
-  if (!fs.existsSync(iconPath)) {
-    log('根目录图标不存在，尝试从资源目录加载:', iconPath);
-    // 尝试从资源目录加载
-    iconPath = path.join(process.resourcesPath, '22-ico.ico');
-    if (!fs.existsSync(iconPath)) {
-      log('资源目录图标不存在，尝试使用备选图标');
-      // 尝试使用备选图标
-      iconPath = path.join(__dirname, 'app.ico');
-      if (!fs.existsSync(iconPath)) {
-        iconPath = path.join(process.resourcesPath, 'app.ico');
-        if (!fs.existsSync(iconPath)) {
-          log('警告: 所有图标文件都不存在');
-          iconPath = null;
+  let iconPath = path.join(__dirname, 'assets', '22-ico.ico');
+  let iconSourcePath = '';
+  
+  if (fs.existsSync(iconPath)) {
+    log('使用assets目录图标:', iconPath);
+    iconSourcePath = iconPath;
+  } else {
+    log('assets目录图标不存在，尝试从根目录加载');
+    // 尝试从根目录加载
+    iconPath = path.join(__dirname, '22-ico.ico');
+    if (fs.existsSync(iconPath)) {
+      log('使用根目录图标:', iconPath);
+      iconSourcePath = iconPath;
+    } else {
+      log('根目录图标不存在，尝试从资源目录加载');
+      // 尝试从资源目录加载
+      iconPath = path.join(process.resourcesPath, 'assets', '22-ico.ico');
+      if (fs.existsSync(iconPath)) {
+        log('使用资源目录assets图标:', iconPath);
+        iconSourcePath = iconPath;
+      } else {
+        log('资源目录assets图标不存在，尝试从资源根目录加载');
+        iconPath = path.join(process.resourcesPath, '22-ico.ico');
+        if (fs.existsSync(iconPath)) {
+          log('使用资源根目录图标:', iconPath);
+          iconSourcePath = iconPath;
+        } else {
+          log('资源目录图标不存在，尝试使用备选图标');
+          // 尝试使用备选图标
+          iconPath = path.join(__dirname, 'assets', 'app.ico');
+          if (fs.existsSync(iconPath)) {
+            log('使用assets目录备选图标:', iconPath);
+            iconSourcePath = iconPath;
+          } else {
+            iconPath = path.join(__dirname, 'app.ico');
+            if (fs.existsSync(iconPath)) {
+              log('使用根目录备选图标:', iconPath);
+              iconSourcePath = iconPath;
+            } else {
+              iconPath = path.join(process.resourcesPath, 'app.ico');
+              if (fs.existsSync(iconPath)) {
+                log('使用资源目录备选图标:', iconPath);
+                iconSourcePath = iconPath;
+              } else {
+                log('警告: 所有图标文件都不存在');
+                iconPath = null;
+                iconSourcePath = '';
+              }
+            }
+          }
         }
       }
     }
   }
-  log('使用图标文件:', iconPath);
+  
+  // 如果找到了有效的图标源文件，创建临时图标
+  let appIcon = null;
+  if (iconSourcePath && fs.existsSync(iconSourcePath)) {
+    try {
+      // 复制图标到临时位置
+      log(`复制图标 ${iconSourcePath} 到 ${tempIconPath}`);
+      fs.copyFileSync(iconSourcePath, tempIconPath);
+      
+      // 使用临时图标创建NativeImage
+      const { nativeImage } = require('electron');
+      appIcon = nativeImage.createFromPath(tempIconPath);
+      
+      if (appIcon.isEmpty()) {
+        log('警告: 创建的NativeImage是空的');
+        appIcon = null;
+      } else {
+        log('成功创建NativeImage图标');
+        // 使用临时图标路径
+        iconPath = tempIconPath;
+      }
+    } catch (err) {
+      log('创建临时图标或NativeImage时出错:', err);
+    }
+  }
 
   // 记录图标路径到文件，以便进行调试
   try {
     fs.writeFileSync(path.join(app.getPath('userData'), 'icon-debug.txt'), 
-                    `图标路径: ${iconPath}\n文件存在: ${iconPath && fs.existsSync(iconPath)}\n时间: ${new Date().toISOString()}`);
+                    `图标路径: ${iconPath}\n临时图标路径: ${tempIconPath}\n图标源路径: ${iconSourcePath}\n文件存在: ${iconPath && fs.existsSync(iconPath)}\n时间: ${new Date().toISOString()}`);
   } catch (e) {
     log('写入调试文件失败:', e);
   }
@@ -72,7 +160,7 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    icon: iconPath,
+    icon: appIcon || iconPath,
     autoHideMenuBar: true,
     frame: true,
     title: "我灵",
@@ -83,57 +171,61 @@ function createWindow() {
 
   // 设置任务栏图标
   if (process.platform === 'win32') {
-    app.setAppUserModelId(process.execPath); // 使用可执行文件路径作为AppUserModelID
-    
-    // 强制更新图标，多次设置以确保应用
-    if (iconPath) {
-      try {
-        // 使用NativeImage创建图标
-        const { nativeImage } = require('electron');
-        const icon = nativeImage.createFromPath(iconPath);
-        
-        if (!icon.isEmpty()) {
-          log('成功加载图标为NativeImage');
-          mainWindow.setIcon(icon);
-        } else {
-          log('NativeImage为空，直接设置图标路径');
-          mainWindow.setIcon(iconPath);
-        }
-        
-        // 通过reload刷新窗口使图标生效
-        mainWindow.webContents.once('did-finish-load', () => {
-          setTimeout(() => {
-            try {
-              // 再次应用图标
-              if (!icon.isEmpty()) {
-                mainWindow.setIcon(icon);
-              } else {
-                mainWindow.setIcon(iconPath);
-              }
-              
-              // 尝试设置任务栏图标
-              mainWindow.setOverlayIcon(icon, '我灵');
-              
-              app.setAsDefaultProtocolClient('woling'); // 设置应用为协议处理程序，有助于刷新图标关联
-              
-              // 使用每次运行时的唯一临时图标以避免Windows缓存图标
-              const tempIconPath = path.join(app.getPath('temp'), `woling-icon-${Date.now()}.ico`);
-              try {
-                fs.copyFileSync(iconPath, tempIconPath);
-                mainWindow.setIcon(nativeImage.createFromPath(tempIconPath) || tempIconPath);
-                log('使用临时图标:', tempIconPath);
-              } catch (err) {
-                log('无法创建临时图标:', err);
-              }
-            } catch (innerErr) {
-              log('设置图标时出错:', innerErr);
-            }
-          }, 500);
-        });
-      } catch (e) {
-        log('设置图标出错:', e);
-      }
+    // 在窗口创建后立即设置图标
+    if (appIcon) {
+      log('使用NativeImage设置窗口图标');
+      mainWindow.setIcon(appIcon);
+    } else if (iconPath) {
+      log('使用图标路径设置窗口图标:', iconPath);
+      mainWindow.setIcon(iconPath);
     }
+    
+    // 确保任务栏图标正确显示
+    mainWindow.webContents.once('did-finish-load', () => {
+      // 延迟一点时间以确保窗口已完全初始化
+      setTimeout(() => {
+        try {
+          // 再次设置图标以确保它被应用
+          if (appIcon) {
+            log('页面加载后再次设置窗口图标(NativeImage)');
+            mainWindow.setIcon(appIcon);
+            
+            // 使用每次运行时的唯一临时图标以避免Windows缓存问题
+            const tempIconPath = path.join(app.getPath('temp'), `woling-icon-${Date.now()}.ico`);
+            try {
+              log('创建临时图标:', tempIconPath);
+              fs.copyFileSync(iconPath, tempIconPath);
+              const tempIcon = require('electron').nativeImage.createFromPath(tempIconPath);
+              if (!tempIcon.isEmpty()) {
+                log('使用临时图标设置窗口图标');
+                mainWindow.setIcon(tempIcon);
+                
+                // 尝试设置覆盖图标
+                mainWindow.setOverlayIcon(tempIcon, '我灵');
+                log('设置了覆盖图标');
+                
+                // 尝试设置任务栏图标
+                app.whenReady().then(() => {
+                  if (process.platform === 'darwin' && app.dock) {
+                    app.dock.setIcon(tempIcon);
+                    log('设置了Dock图标');
+                  }
+                });
+              } else {
+                log('临时图标为空');
+              }
+            } catch (err) {
+              log('无法创建临时图标:', err);
+            }
+          } else if (iconPath) {
+            log('页面加载后再次设置窗口图标(路径):', iconPath);
+            mainWindow.setIcon(iconPath);
+          }
+        } catch (err) {
+          log('设置图标时出错:', err);
+        }
+      }, 1000); // 增加延迟时间
+    });
   }
 
   // 启用@electron/remote

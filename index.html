@@ -87,7 +87,9 @@
   <template id="generate-template">
     <div class="generate-page">
       <div class="page-header">
-        <h1><i class="bi bi-file-earmark-plus"></i> 生成题目</h1>
+        <div class="text-center">
+          <h1 class="generate-title"><i class="bi bi-file-earmark-plus"></i> 生成题目</h1>
+        </div>
       </div>
       
       <div class="step-container">
@@ -98,9 +100,11 @@
             <label for="field-input">请输入您的专业领域：</label>
             <input type="text" id="field-input" class="form-control" placeholder="例如：计算机科学、医学、法律、经济学等">
           </div>
-          <button class="btn btn-primary next-step" data-next="step-2">
-            下一步 <i class="bi bi-arrow-right"></i>
-          </button>
+          <div class="step-1-btn-center">
+            <button class="btn btn-primary next-step" data-next="step-2">
+              下一步 <i class="bi bi-arrow-right"></i>
+            </button>
+          </div>
         </div>
         
         <!-- 步骤2：设置题目要求 -->
@@ -204,158 +208,126 @@
   <template id="settings-template">
     <div class="settings-page">
       <div class="page-header">
-        <h1><i class="bi bi-gear"></i> 软件设置</h1>
+        <h1><i class="bi bi-gear"></i> 设置</h1>
       </div>
       
       <div class="settings-container">
         <!-- 主题设置 -->
         <div class="settings-section">
-          <h3><i class="bi bi-palette"></i> 主题背景</h3>
-          
+          <h3>界面主题</h3>
           <div class="form-group">
-            <label for="theme-select">选择主题：</label>
+            <label for="theme-select">选择主题</label>
             <select id="theme-select" class="form-control">
-              <option value="default">默认主题</option>
-              <option value="dark">深色主题</option>
               <option value="light">浅色主题</option>
+              <option value="dark">深色主题</option>
+              <option value="auto">跟随系统</option>
               <option value="custom">自定义主题</option>
             </select>
           </div>
           
-          <div class="form-group">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="flower-option">
-              <label class="form-check-label" for="flower-option">
-                我花
-              </label>
-            </div>
-          </div>
-          
+          <!-- 自定义主题选项 -->
           <div id="custom-theme-options" style="display: none;">
             <div class="form-group">
-              <label for="bg-color">背景颜色：</label>
-              <input type="color" id="bg-color" class="form-control" value="#f8f9fa">
+              <label for="bg-color">背景颜色</label>
+              <input type="color" id="bg-color" class="form-control">
             </div>
             
             <div class="form-group">
-              <label for="bg-image-url">背景图片URL：</label>
-              <input type="text" id="bg-image-url" class="form-control" placeholder="https://example.com/image.jpg">
+              <label for="bg-image-url">背景图片URL</label>
+              <input type="text" id="bg-image-url" class="form-control" placeholder="输入图片URL">
             </div>
             
             <div class="form-group">
-              <label for="bg-image-upload">上传背景图片：</label>
+              <label for="bg-image-upload">上传背景图片</label>
               <input type="file" id="bg-image-upload" class="form-control" accept="image/*">
             </div>
             
-            <div id="bg-preview" class="bg-preview">
-              <p>背景预览</p>
+            <div class="form-group">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="flower-option">
+                <label class="form-check-label" for="flower-option">
+                  启用花朵装饰
+                </label>
+              </div>
             </div>
+            
+            <div class="bg-preview-container">
+              <label>预览</label>
+              <div id="bg-preview"></div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 本地题库设置 -->
+        <div class="settings-section">
+          <h3>本地题库</h3>
+          <p class="text-muted">上传自定义题库包，在本地生成模式下使用</p>
+          
+          <div class="question-bank-list" id="question-bank-list">
+            <div class="text-center p-3 text-muted">暂无自定义题库</div>
+          </div>
+          
+          <div class="form-group mt-3">
+            <label>上传题库包 (JSON格式)</label>
+            <div class="dropzone" id="bank-dropzone">
+              <div class="dropzone-content">
+                <i class="bi bi-cloud-arrow-up-fill"></i>
+                <p>拖拽题库文件到此处，或点击上传</p>
+                <small class="text-muted">支持JSON格式题库文件</small>
+              </div>
+              <input type="file" id="bank-upload" class="form-control dropzone-input" accept=".json">
+            </div>
+            <small class="text-muted mt-2">题库包格式请参考<a href="#" id="show-bank-format">格式说明</a>或下载<a href="#" id="download-sample">示例题库</a></small>
+          </div>
+          
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="use-custom-bank" checked>
+            <label class="form-check-label" for="use-custom-bank">
+              优先使用自定义题库（如有）
+            </label>
           </div>
         </div>
         
         <!-- API设置 -->
         <div class="settings-section">
-          <h3><i class="bi bi-braces"></i> API设置</h3>
-          
+          <h3>AI设置</h3>
           <div class="form-group">
-            <label for="ai-provider">AI提供商：</label>
+            <label for="ai-provider">AI提供商</label>
             <select id="ai-provider" class="form-control">
               <option value="tongyi">通义千问</option>
-              <option value="openai">OpenAI</option>
-              <option value="deepseek">Deepseek</option>
+              <option value="deepseek">DeepSeek</option>
               <option value="custom">自定义API</option>
             </select>
           </div>
           
-          <div class="form-group">
-            <label for="api-key">API密钥：</label>
-            <div class="input-group">
-              <input type="password" id="api-key" class="form-control" placeholder="输入您的API密钥">
-              <button class="btn btn-outline-secondary toggle-password" type="button">
-                <i class="bi bi-eye"></i>
-              </button>
-            </div>
-            <small class="form-text text-muted">您的API密钥将安全地存储在本地</small>
-          </div>
-          
+          <!-- 自定义API选项 -->
           <div id="custom-api-options" style="display: none;">
             <div class="form-group">
-              <label for="api-endpoint">API端点：</label>
+              <label for="api-key">API密钥</label>
+              <div class="input-group">
+                <input type="password" id="api-key" class="form-control" placeholder="输入您的API密钥">
+                <button class="btn btn-outline-secondary toggle-password" type="button">
+                  <i class="bi bi-eye"></i>
+                </button>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="api-endpoint">API端点</label>
               <input type="text" id="api-endpoint" class="form-control" placeholder="https://api.example.com/v1/chat/completions">
             </div>
-          </div>
-          
-          <div class="api-usage-limits">
-            <div class="alert alert-info">
-              <i class="bi bi-info-circle"></i> 使用限制提示：
-              <ul>
-                <li>软件一次性最多生成15题</li>
-                <li>默认API下用户一天最多生成20次题目</li>
-                <li>使用自己的API密钥则不受生成次数限制</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        
-        <!-- 高级设置 -->
-        <div class="settings-section">
-          <h3><i class="bi bi-gear"></i> 高级设置</h3>
-          
-          <div class="form-group">
-            <label>历史题目记录</label>
-            <p class="text-muted">系统会记住已生成的题目，避免重复出现相同题目。如果您想重新生成这些题目，可以清除历史记录。</p>
-            <button id="clear-question-history" class="btn btn-warning">
-              <i class="bi bi-trash"></i> 清除历史题目记录
-            </button>
-          </div>
-        </div>
-        
-        <!-- 赞助栏目 -->
-        <div class="settings-section">
-          <h3><i class="bi bi-heart-fill"></i> 赞助</h3>
-          
-          <div class="sponsor-plans">
-            <div class="sponsor-plan">
-              <h4>方案一</h4>
-              <ul>
-                <li>提前看到新作品</li>
-                <li>加入专属社区</li>
-                <li>解锁幕后内容</li>
-              </ul>
-            </div>
             
-            <div class="sponsor-plan">
-              <h4>方案二</h4>
-              <p>在包含之前的奖励方案的基础上增加：</p>
-              <ul>
-                <li>创作过程分享、教学</li>
-              </ul>
+            <div class="form-group">
+              <label for="api-model">模型名称</label>
+              <input type="text" id="api-model" class="form-control" placeholder="例如：gpt-3.5-turbo">
             </div>
-            
-            <div class="sponsor-plan">
-              <h4>方案三</h4>
-              <p>虽然作者正在不断学习，但目前还是可以做一些内容的，可以交流想法，也可以定制。</p>
-              <ul>
-                <li>加入新的专属社区</li>
-              </ul>
-            </div>
-          </div>
-          
-          <div class="sponsor-action">
-            <a href="https://afdian.com/a/xieshuoxing" target="_blank" rel="noopener noreferrer" class="btn btn-primary sponsor-button" id="sponsor-link">
-              <i class="bi bi-heart"></i> 前往赞助
-            </a>
           </div>
         </div>
         
-        <!-- 保存按钮 -->
+        <!-- 按钮区域 -->
         <div class="settings-actions">
-          <button class="btn btn-primary" id="save-settings">
-            <i class="bi bi-save"></i> 保存设置
-          </button>
-          <button class="btn btn-secondary" id="reset-settings">
-            <i class="bi bi-arrow-counterclockwise"></i> 重置为默认
-          </button>
+          <button class="btn btn-primary" id="save-settings">保存设置</button>
+          <button class="btn btn-outline-secondary" id="reset-settings">恢复默认</button>
         </div>
       </div>
     </div>

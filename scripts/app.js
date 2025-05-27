@@ -1,6 +1,7 @@
 // 全局变量
 const TONGYI_API_KEY = 'sk-07ef4701031d41668beebb521e80eaf0';
 const DEEPSEEK_API_KEY = 'sk-0b2be14756fe4195a7bc2bcb78d19f8f';
+const DEFAULT_API_KEY = TONGYI_API_KEY; // 默认使用通义千问API
 const MAX_DAILY_GENERATIONS = 20; // 默认API下每日最大生成次数
 const MAX_QUESTIONS_PER_GENERATION = 15; // 一次最多生成题目数量
 
@@ -13,6 +14,7 @@ let selectedHistoryItems = [];
 let dailyGenerationCount = 0; // 当天已生成次数
 let lastGenerationDate = null; // 上次生成日期
 let usedQuestionContents = new Set(); // 存储已使用过的题目内容，防止重复
+let customQuestionBanks = []; // 存储自定义题库
 
 // 检测是否在Electron环境中运行
 const isElectron = () => {
@@ -112,20 +114,29 @@ const pageManager = {
         setTimeout(() => {
           generatePage.init();
           
-          // 从笔记本页面切换到生成题目页面时，增加更多的尝试次数
-          if (previousPage === 'notebook') {
-            console.log('从笔记本页面切换到生成题目页面，确保输入框可用');
-            // 使用递增延迟确保输入框可交互
-            for (let i = 1; i <= 10; i++) {
-              setTimeout(() => generatePage.ensureFieldInputInteractive(), i * 200);
+          // 从任何页面切换到生成题目页面时，使用多次递增延迟确保输入框可用
+          console.log('切换到生成题目页面，确保输入框可用');
+          
+          // 创建一个函数来处理递归尝试
+          const tryEnableInput = (attempt = 1, maxAttempts = 10) => {
+            if (attempt > maxAttempts) return;
+            
+            console.log(`第${attempt}次尝试激活输入框`);
+            const input = generatePage.ensureFieldInputInteractive();
+            
+            // 如果成功获得输入框引用，添加额外的点击处理
+            if (input) {
+              input.click();
+              input.focus();
             }
-          } else {
-            // 在页面加载后多次尝试确保输入框可交互
-            setTimeout(() => generatePage.ensureFieldInputInteractive(), 100);
-            setTimeout(() => generatePage.ensureFieldInputInteractive(), 300);
-            setTimeout(() => generatePage.ensureFieldInputInteractive(), 500);
-          }
-        }, 50);
+            
+            // 延迟递增，确保即使后续事件可能影响输入框，仍能继续尝试激活
+            setTimeout(() => tryEnableInput(attempt + 1, maxAttempts), 300 * attempt);
+          };
+          
+          // 启动尝试序列
+          tryEnableInput();
+        }, 100);
       } else if (pageName === 'history') {
         historyPage.init();
       } else if (pageName === 'settings') {
@@ -436,17 +447,20 @@ const generatePage = {
     // 确保新输入框可交互
     newInput.readOnly = false;
     newInput.disabled = false;
+    newInput.tabIndex = 0;  // 确保可以通过Tab键聚焦
     newInput.style.pointerEvents = 'auto';
     newInput.style.zIndex = '1000';
     newInput.style.position = 'relative';
     newInput.style.opacity = '1';
     newInput.style.visibility = 'visible';
+    newInput.style.userSelect = 'text';
+    newInput.autocomplete = 'on';
     
     // 替换原有的输入框
     if (fieldInput.parentNode) {
       fieldInput.parentNode.replaceChild(newInput, fieldInput);
       
-      // 为新的输入框添加点击和聚焦事件
+      // 为新的输入框添加点击和聚焦事件，使用捕获阶段以确保先于其他事件处理
       newInput.addEventListener('click', (e) => {
         e.stopPropagation();
         try {
@@ -455,7 +469,12 @@ const generatePage = {
         } catch (err) {
           console.error('输入框聚焦失败:', err);
         }
-      });
+      }, true);
+      
+      // 添加mousedown事件，确保点击能被处理
+      newInput.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+      }, true);
       
       // 尝试立即聚焦
       try {
@@ -480,6 +499,8 @@ const generatePage = {
     } else {
       console.error('输入框没有父元素，无法替换');
     }
+    
+    return newInput;  // 返回新创建的输入框元素
   },
   
   // 设置步骤导航
@@ -581,9 +602,29 @@ const generatePage = {
       
       // 当返回到第一步时，确保输入框可以正常工作
       if (stepId === 'step-1') {
-        // 使用专门的函数确保输入框可交互
-        setTimeout(() => this.ensureFieldInputInteractive(), 100);
-        setTimeout(() => this.ensureFieldInputInteractive(), 300);
+        console.log('返回到步骤1，确保输入框可交互');
+        
+        // 使用类似的递归尝试方式确保输入框可交互
+        const tryActivateInput = (attempt = 1, maxAttempts = 5) => {
+          if (attempt > maxAttempts) return;
+          
+          console.log(`步骤1: 第${attempt}次尝试激活输入框`);
+          const input = this.ensureFieldInputInteractive();
+          
+          if (input) {
+            // 强制激活
+            setTimeout(() => {
+              input.click();
+              input.focus();
+            }, 50);
+          }
+          
+          // 递增延迟
+          setTimeout(() => tryActivateInput(attempt + 1, maxAttempts), 200 * attempt);
+        };
+        
+        // 启动尝试序列
+        setTimeout(() => tryActivateInput(), 100);
       }
     }
   },
@@ -608,7 +649,7 @@ const generatePage = {
     // 显示加载状态
     container.innerHTML = '<p>正在分析专业领域，生成适合的题目类型选项...</p>';
     
-    // 模拟API调用延迟
+    // 减少不必要的延迟，加快UI响应
     setTimeout(() => {
       // 根据专业领域生成题目类型选项
       // 这里是示例数据，实际应用中应该调用后端API
@@ -623,6 +664,24 @@ const generatePage = {
               <label for="question-type-${type.id}">${type.name}</label>
             </div>
           `).join('')}
+        </div>
+
+        <div class="form-check mt-4">
+          <div class="generation-mode-selector">
+            <h5>生成模式</h5>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="generation-mode" id="fast-generation" value="fast" checked>
+              <label class="form-check-label" for="fast-generation">
+                <strong>快速生成</strong>（本地生成，立即完成）
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="generation-mode" id="ai-generation" value="ai">
+              <label class="form-check-label" for="ai-generation">
+                <strong>AI生成</strong>（更高质量，但可能较慢）
+              </label>
+            </div>
+          </div>
         </div>
       `;
       
@@ -650,7 +709,7 @@ const generatePage = {
       if (firstOption) {
         firstOption.classList.add('selected');
       }
-    }, 1000);
+    }, 300); // 减少延迟时间
   },
   
   // 根据专业领域返回题目类型
@@ -706,7 +765,12 @@ const generatePage = {
     if (!container) return;
     
     // 检查是否使用自定义API密钥
-    const isUsingCustomKey = this.checkIfUsingCustomKey();
+    let isUsingCustomKey = false;
+    try {
+      isUsingCustomKey = this.checkIfUsingCustomKey();
+    } catch (error) {
+      console.warn('检查API密钥时出错:', error);
+    }
     
     // 检查每日生成次数限制
     if (!isUsingCustomKey && !this.checkDailyGenerationLimit()) {
@@ -742,12 +806,103 @@ const generatePage = {
     
     // 如果不是使用自定义API密钥，增加生成次数计数
     if (!isUsingCustomKey) {
-      this.incrementDailyGenerationCount();
+      try {
+        this.incrementDailyGenerationCount();
+      } catch (error) {
+        console.warn('增加生成次数计数时出错:', error);
+      }
     }
+    
+    // 检查使用哪种生成模式
+    const fastGenerationRadio = document.getElementById('fast-generation');
+    const aiGenerationRadio = document.getElementById('ai-generation');
+    const useFastMode = !aiGenerationRadio || !aiGenerationRadio.checked;
+    
+    // 如果启用快速生成模式，直接使用本地生成
+    if (useFastMode) {
+      console.log('使用快速生成模式（本地生成）');
+      try {
+        // 生成本地随机题目
+        const questions = this.generateRandomQuestions();
+        
+        // 保存生成的题目
+        this.generatedQuestions = questions;
+        
+        // 创建题目UI
+        let questionsHtml = '';
+        this.generatedQuestions.forEach((question, index) => {
+          questionsHtml += this.createQuestionCard(question, index);
+        });
+        
+        container.innerHTML = questionsHtml;
+        
+        // 添加检查答案事件监听
+        this.setupAnswerCheckEvents();
+        
+        // 显示保存和重新生成按钮
+        const saveButton = document.getElementById('save-questions');
+        const generateNewButton = document.getElementById('generate-new');
+        
+        if (saveButton) saveButton.style.display = 'block';
+        if (generateNewButton) generateNewButton.style.display = 'block';
+      } catch (error) {
+        console.error('本地生成题目失败:', error);
+        container.innerHTML = `
+          <div class="alert alert-danger">
+            <h4><i class="bi bi-exclamation-triangle"></i> 生成题目失败</h4>
+            <p>${error.message || '请稍后重试'}</p>
+            <button class="btn btn-primary retry-generate">重试</button>
+          </div>
+        `;
+        
+        // 添加重试按钮事件监听
+        const retryButton = container.querySelector('.retry-generate');
+        if (retryButton) {
+          retryButton.addEventListener('click', () => {
+            this.generateQuestions();
+          });
+        }
+      }
+      return;
+    }
+    
+    // 添加超时处理
+    let isTimeout = false;
+    const timeoutId = setTimeout(() => {
+      isTimeout = true;
+      console.error('生成题目超时，使用本地生成');
+      // 生成本地随机题目作为备选
+      const questions = this.generateRandomQuestions();
+      
+      // 保存生成的题目
+      this.generatedQuestions = questions;
+      
+      // 创建题目UI
+      let questionsHtml = '';
+      this.generatedQuestions.forEach((question, index) => {
+        questionsHtml += this.createQuestionCard(question, index);
+      });
+      
+      container.innerHTML = questionsHtml;
+      
+      // 添加检查答案事件监听
+      this.setupAnswerCheckEvents();
+      
+      // 显示保存和重新生成按钮
+      const saveButton = document.getElementById('save-questions');
+      const generateNewButton = document.getElementById('generate-new');
+      
+      if (saveButton) saveButton.style.display = 'block';
+      if (generateNewButton) generateNewButton.style.display = 'block';
+    }, 30000); // 30秒超时
     
     // 使用AI生成题目
     this.generateQuestionsWithAI()
       .then(questions => {
+        // 如果已经超时处理了，不再继续执行
+        if (isTimeout) return;
+        clearTimeout(timeoutId);
+        
         // 保存生成的题目
         this.generatedQuestions = questions;
         
@@ -771,6 +926,10 @@ const generatePage = {
         if (generateNewButton) generateNewButton.style.display = 'block';
       })
       .catch(error => {
+        // 如果已经超时处理了，不再继续执行
+        if (isTimeout) return;
+        clearTimeout(timeoutId);
+        
         console.error('生成题目失败:', error);
         
         // 显示错误信息
@@ -778,7 +937,10 @@ const generatePage = {
           <div class="alert alert-danger">
             <h4><i class="bi bi-exclamation-triangle"></i> 生成题目失败</h4>
             <p>${error.message || '请稍后重试'}</p>
-            <button class="btn btn-primary retry-generate">重试</button>
+            <div class="d-flex gap-2">
+              <button class="btn btn-primary retry-generate">重试</button>
+              <button class="btn btn-secondary use-local-generate">使用本地生成</button>
+            </div>
           </div>
         `;
         
@@ -789,114 +951,166 @@ const generatePage = {
             this.generateQuestions();
           });
         }
+        
+        // 添加使用本地生成按钮事件监听
+        const useLocalButton = container.querySelector('.use-local-generate');
+        if (useLocalButton) {
+          useLocalButton.addEventListener('click', () => {
+            // 生成本地随机题目
+            const questions = this.generateRandomQuestions();
+            
+            // 保存生成的题目
+            this.generatedQuestions = questions;
+            
+            // 创建题目UI
+            let questionsHtml = '';
+            this.generatedQuestions.forEach((question, index) => {
+              questionsHtml += this.createQuestionCard(question, index);
+            });
+            
+            container.innerHTML = questionsHtml;
+            
+            // 添加检查答案事件监听
+            this.setupAnswerCheckEvents();
+            
+            // 显示保存和重新生成按钮
+            const saveButton = document.getElementById('save-questions');
+            const generateNewButton = document.getElementById('generate-new');
+            
+            if (saveButton) saveButton.style.display = 'block';
+            if (generateNewButton) generateNewButton.style.display = 'block';
+          });
+        }
       });
   },
   
   // 使用AI生成题目
   async generateQuestionsWithAI() {
     console.log('使用AI生成题目');
-    console.log('专业领域:', this.fieldValue);
-    console.log('题目数量:', this.questionCount);
-    console.log('难度级别:', this.difficulty);
-    console.log('题目类型:', this.selectedTypes);
+    
+    // 获取API设置
+    const settings = settingsPage.settings || {}; // 直接获取settings对象
+    const apiSettings = settings.api || {};
+    
+    // 根据提供商选择默认API密钥和端点
+    let apiKey = DEFAULT_API_KEY; // 默认使用通义千问
+    let apiEndpoint = 'https://api.tongyi.aliyun.com/v1/chat/completions';
+    let modelName = 'qwen-max';
+    
+    if (apiSettings.provider === 'deepseek') {
+      apiKey = DEEPSEEK_API_KEY;
+      apiEndpoint = 'https://api.deepseek.com/v1/chat/completions';
+      modelName = 'deepseek-chat';
+    } else if (apiSettings.provider === 'custom' && apiSettings.key) {
+      // 使用自定义API
+      apiKey = apiSettings.key;
+      apiEndpoint = apiSettings.endpoint || 'https://api.tongyi.aliyun.com/v1/chat/completions';
+      modelName = apiSettings.model || 'qwen-max';
+    }
+    
+    // 如果API密钥无效，则使用本地生成
+    if (!apiKey || apiKey === 'YOUR_API_KEY') {
+      console.error('无效的API密钥，使用本地生成');
+      return this.generateRandomQuestions();
+    }
+    
+    console.log(`使用API提供商: ${apiSettings.provider || '默认'}, 模型: ${modelName}`);
+    
+    // 构建提示词
+    const typeNames = {
+      'single': '单选题',
+      'multiple': '多选题',
+      'tf': '判断题',
+      'short': '简答题'
+    };
+    
+    // 简化提示词，降低token数量
+    const typeText = this.selectedTypes.map(type => typeNames[type]).join('、');
+    const difficultyText = this.getDifficultyText(this.difficulty);
+    
+    let prompt = `请生成${this.questionCount}道关于${this.fieldValue}的${difficultyText}${typeText}。
+格式要求：
+1. 每道题目包含题目内容、选项（简答题除外）和答案
+2. 答案部分需要包含正确选项和简短解析
+3. JSON格式输出，包含id、type、content、options和answer字段`;
+
+    // 精简提示，加快处理速度
+    const exampleQuestions = [
+      {
+        id: 'q1',
+        type: 'single',
+        content: '这是一道单选题示例',
+        options: ['选项A', '选项B', '选项C', '选项D'],
+        answer: 'A. 选项A\n\n解析：这是答案解析'
+      }
+    ];
+    
+    prompt += `\n示例格式：${JSON.stringify(exampleQuestions)}`;
+    
+    // 缓存生成设置，确保API请求期间数据一致性
+    const cachedField = this.fieldValue;
+    const cachedCount = this.questionCount;
+    const cachedDifficulty = this.difficulty;
+    const cachedTypes = [...this.selectedTypes];
     
     try {
-      // 获取API设置
-      const apiSettings = settingsPage.settings.api;
-      const apiKey = apiSettings.key || (apiSettings.provider === 'tongyi' ? TONGYI_API_KEY : DEEPSEEK_API_KEY);
-      const apiEndpoint = apiSettings.endpoint || (apiSettings.provider === 'tongyi' ? 'https://api.tongyi.aliyun.com/v1/chat/completions' : 'https://api.deepseek.com/v1/chat/completions');
-      const apiModel = apiSettings.provider === 'tongyi' ? 'qwen-max' : 'deepseek-chat';
-      
-      // 获取难度文本
-      let difficultyText;
-      switch (this.difficulty) {
-        case 'level1': difficultyText = '初窥门径'; break;
-        case 'level2': difficultyText = '问道寻幽'; break;
-        case 'level3': difficultyText = '破茧凌虚'; break;
-        case 'level4': difficultyText = '踏月摘星'; break;
-        case 'level5': difficultyText = '弈天问道'; break;
-        case 'level6': difficultyText = '无相劫海'; break;
-        case 'level7': difficultyText = '太一归墟'; break;
-        // 保留旧版本的兼容性
-        case 'easy': difficultyText = '初窥门径'; break;
-        case 'medium': difficultyText = '踏月摘星'; break;
-        case 'hard': difficultyText = '太一归墟'; break;
-        default: difficultyText = '踏月摘星'; break;
-      }
-      
-      // 构建提示词
-      const typeText = this.selectedTypes.map(type => {
-        switch (type) {
-          case 'single': return '单选题';
-          case 'multiple': return '多选题';
-          case 'tf': return '判断题';
-          case 'short': return '简答题';
-          default: return type;
-        }
-      }).join('、');
-      
-      // 构建系统提示词
-      const systemPrompt = `你是一个专业的${this.fieldValue}题目生成器。请根据用户的要求，生成符合条件的题目。
-生成的题目应该具有教育意义，难度级别为"${difficultyText}"。
-请确保题目内容准确、专业，并提供详细的解析。
-输出格式必须是JSON数组，每个题目包含以下字段：
-1. id: 题目ID，格式为"q-"加上随机数
-2. type: 题目类型，可以是"single"(单选题)、"multiple"(多选题)、"tf"(判断题)或"short"(简答题)
-3. content: 题目内容
-4. options: 选项数组（单选题和多选题必须提供，判断题和简答题可以为空数组）
-5. answer: 答案，包括正确选项和解析
-
-请确保生成的题目各不相同，内容丰富多样。`;
-
-      // 构建用户提示词
-      const userPrompt = `请生成${this.questionCount}道${this.fieldValue}的${typeText}，难度级别为"${difficultyText}"。`;
-      
-      // 构建API请求参数
-      const requestData = {
-        model: apiModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.7, // 增加随机性
-        max_tokens: 4000,
-        parameters: {
-          result_format: 'json'
-        }
+      // 使用较小的token数量和更短的超时时间
+      const requestOptions = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            {
+              role: 'system',
+              content: '你是一个专业的题目生成助手，擅长根据要求生成高质量的各类题目。请直接生成符合要求的题目JSON数据。'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          max_tokens: 2048,  // 减少token数量以加快生成速度
+          temperature: 0.7
+        })
       };
       
-      console.log('API请求参数:', JSON.stringify(requestData, null, 2));
+      // 设置请求超时
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('请求超时')), 15000);  // 15秒超时
+      });
       
-      // 在Electron环境中使用IPC进行API调用
-      if (isElectron()) {
-        try {
-          console.log('使用Electron IPC进行API调用');
-          const result = await window.electronAPI.callAI({
-            endpoint: apiEndpoint,
-            apiKey: apiKey,
-            data: requestData
-          });
-          
-          if (!result.success) {
-            console.log('API调用失败，使用本地生成:', result.error);
-            throw new Error(result.error || '调用AI API失败');
-          }
-          
-          return this.parseAIResponse(result.data);
-        } catch (error) {
-          console.log('API调用出错，使用本地生成:', error.message);
-          // 使用本地生成随机题目
+      // 发送API请求
+      const responsePromise = fetch(apiEndpoint, requestOptions);
+      const response = await Promise.race([responsePromise, timeoutPromise]);
+      const data = await response.json();
+      
+      // 解析响应
+      if (data.choices && data.choices.length > 0) {
+        const questions = this.parseAIResponse(data);
+        
+        // 检查生成的题目是否符合当前要求
+        // 仅在参数一致时才返回结果
+        if (
+          this.fieldValue === cachedField &&
+          this.questionCount === cachedCount &&
+          this.difficulty === cachedDifficulty &&
+          JSON.stringify(this.selectedTypes) === JSON.stringify(cachedTypes)
+        ) {
+          return questions;
+        } else {
+          console.warn('生成参数已更改，重新生成题目');
           return this.generateRandomQuestions();
         }
       } else {
-        // 在浏览器环境中，使用本地生成随机题目
-        console.log('浏览器环境，使用本地生成随机题目');
+        console.error('AI响应格式错误，使用本地生成:', data);
         return this.generateRandomQuestions();
       }
     } catch (error) {
-      console.error('AI生成题目失败:', error);
-      // 出错时使用本地生成随机题目
-      console.log('回退到使用本地生成随机题目');
+      console.error('AI生成题目失败，使用本地生成:', error);
       return this.generateRandomQuestions();
     }
   },
@@ -905,17 +1119,32 @@ const generatePage = {
   generateRandomQuestions() {
     console.log('使用本地逻辑生成随机题目');
     
-    // 加载历史题目记录
-    this.loadUsedQuestionContents();
+    // 加载历史题目记录 - 延迟加载以加快初始生成速度
+    if (usedQuestionContents.size === 0) {
+      try {
+        this.loadUsedQuestionContents();
+      } catch (e) {
+        console.warn('加载历史题目记录失败，继续使用空记录:', e);
+      }
+    }
     
-    // 准备题库 - 按专业领域和题型分类
-    const questionBank = this.prepareQuestionBank();
+    // 检查是否使用自定义题库
+    const useCustomBank = settingsPage.settings.questionBank && settingsPage.settings.questionBank.useCustom;
+    
+    if (useCustomBank && customQuestionBanks.length > 0) {
+      console.log('使用自定义题库生成题目');
+      return this.generateQuestionsFromCustomBanks();
+    }
+    
+    console.log('使用系统默认题库生成题目');
+    
     const questions = [];
     const currentUsedContents = new Set(); // 用于跟踪当前生成中已使用的题目内容
     
     // 获取当前选择的题型
     const questionTypes = this.selectedTypes.length > 0 ? this.selectedTypes : ['single', 'multiple', 'tf'];
     
+    // 对于快速生成，允许一定程度的题目重复，只检查当前生成内容不重复
     // 生成指定数量的题目
     for (let i = 0; i < this.questionCount; i++) {
       // 随机选择一个题型
@@ -924,8 +1153,8 @@ const generatePage = {
       // 生成一个随机题目
       const question = this.generateRandomQuestion(i, randomType, this.fieldValue, this.difficulty);
       
-      // 确保题目不重复
-      if (!usedQuestionContents.has(question.content) && !currentUsedContents.has(question.content)) {
+      // 仅检查当前生成批次内不重复，以提高速度
+      if (!currentUsedContents.has(question.content)) {
         questions.push(question);
         currentUsedContents.add(question.content);
       } else {
@@ -934,10 +1163,198 @@ const generatePage = {
       }
     }
     
-    // 保存已使用的题目内容
-    this.saveUsedQuestionContents(currentUsedContents);
+    // 保存已使用的题目内容 - 异步执行以不阻塞UI
+    setTimeout(() => {
+      try {
+        this.saveUsedQuestionContents(currentUsedContents);
+      } catch (e) {
+        console.warn('保存题目内容记录失败:', e);
+      }
+    }, 100);
     
     return questions;
+  },
+  
+  // 从自定义题库生成题目
+  generateQuestionsFromCustomBanks() {
+    const questions = [];
+    const currentUsedContents = new Set();
+    
+    // 获取当前选择的题型
+    const questionTypes = this.selectedTypes.length > 0 ? this.selectedTypes : ['single', 'multiple', 'tf'];
+    
+    // 从题库中选择题目
+    const availableQuestions = this.getQuestionsFromCustomBanks(questionTypes);
+    
+    // 如果没有找到合适的题目，使用系统默认生成
+    if (availableQuestions.length === 0) {
+      console.log('自定义题库中没有找到合适的题目，使用系统默认生成');
+      const defaultQuestions = [];
+      for (let i = 0; i < this.questionCount; i++) {
+        const randomType = questionTypes[Math.floor(Math.random() * questionTypes.length)];
+        const question = this.generateRandomQuestion(i, randomType, this.fieldValue, this.difficulty);
+        defaultQuestions.push(question);
+      }
+      return defaultQuestions;
+    }
+    
+    // 随机选择题目
+    const maxAttempts = Math.min(availableQuestions.length * 2, 100); // 设置最大尝试次数
+    let attempts = 0;
+    
+    while (questions.length < this.questionCount && attempts < maxAttempts) {
+      attempts++;
+      
+      // 随机选择一个题目
+      const randomIndex = Math.floor(Math.random() * availableQuestions.length);
+      const candidateQuestion = availableQuestions[randomIndex];
+      
+      // 检查是否重复
+      if (!currentUsedContents.has(candidateQuestion.content)) {
+        // 确保题目有正确的ID格式
+        const questionId = `q-${questions.length + 1}`;
+        const formattedQuestion = {
+          ...candidateQuestion,
+          id: questionId
+        };
+        
+        questions.push(formattedQuestion);
+        currentUsedContents.add(candidateQuestion.content);
+        
+        // 可选：从可用题目中移除，确保不会重复选择
+        if (questions.length < this.questionCount) {
+          availableQuestions.splice(randomIndex, 1);
+          
+          // 如果没有更多可用题目，结束循环
+          if (availableQuestions.length === 0) {
+            break;
+          }
+        }
+      }
+    }
+    
+    // 如果没有选择足够的题目，补充系统生成的题目
+    if (questions.length < this.questionCount) {
+      console.log(`自定义题库中只找到了${questions.length}道合适的题目，补充系统生成的题目`);
+      const remainingCount = this.questionCount - questions.length;
+      
+      for (let i = 0; i < remainingCount; i++) {
+        const randomType = questionTypes[Math.floor(Math.random() * questionTypes.length)];
+        const question = this.generateRandomQuestion(questions.length + i, randomType, this.fieldValue, this.difficulty);
+        
+        if (!currentUsedContents.has(question.content)) {
+          questions.push(question);
+          currentUsedContents.add(question.content);
+        } else {
+          i--; // 如果重复，重试
+        }
+      }
+    }
+    
+    return questions;
+  },
+  
+  // 从自定义题库中获取符合条件的题目
+  getQuestionsFromCustomBanks(types) {
+    const result = [];
+    
+    // 遍历所有题库
+    for (const bank of customQuestionBanks) {
+      // 如果题库直接包含questions数组
+      if (bank.questions && Array.isArray(bank.questions)) {
+        for (const question of bank.questions) {
+          // 检查题目类型是否符合要求
+          if (types.includes(question.type)) {
+            // 检查是否与专业领域相关（简单文本匹配）
+            if (this.isQuestionRelevantToField(question, this.fieldValue)) {
+              result.push(question);
+            }
+          }
+        }
+      }
+      // 如果题库使用categories组织
+      else if (bank.categories) {
+        // 遍历所有分类
+        for (const categoryKey in bank.categories) {
+          const category = bank.categories[categoryKey];
+          
+          // 检查分类是否与专业领域相关
+          if (this.isCategoryRelevantToField(category, this.fieldValue)) {
+            // 遍历分类中的所有题目
+            if (category.questions && Array.isArray(category.questions)) {
+              for (const question of category.questions) {
+                // 检查题目类型是否符合要求
+                if (types.includes(question.type)) {
+                  result.push(question);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    console.log(`从自定义题库中找到${result.length}道符合条件的题目`);
+    return result;
+  },
+  
+  // 检查题目是否与专业领域相关
+  isQuestionRelevantToField(question, field) {
+    if (!field) return true; // 如果没有指定专业领域，默认相关
+    
+    // 将专业领域转换为小写，用于不区分大小写匹配
+    const lowercaseField = field.toLowerCase();
+    
+    // 检查题目内容是否包含专业领域关键词
+    if (question.content && question.content.toLowerCase().includes(lowercaseField)) {
+      return true;
+    }
+    
+    // 检查题目答案是否包含专业领域关键词
+    if (question.answer && question.answer.toLowerCase().includes(lowercaseField)) {
+      return true;
+    }
+    
+    // 检查题目的任何元数据是否包含专业领域关键词
+    if (question.field && question.field.toLowerCase().includes(lowercaseField)) {
+      return true;
+    }
+    
+    if (question.category && question.category.toLowerCase().includes(lowercaseField)) {
+      return true;
+    }
+    
+    if (question.tags && Array.isArray(question.tags)) {
+      for (const tag of question.tags) {
+        if (tag.toLowerCase().includes(lowercaseField)) {
+          return true;
+        }
+      }
+    }
+    
+    // 默认不相关
+    return false;
+  },
+  
+  // 检查分类是否与专业领域相关
+  isCategoryRelevantToField(category, field) {
+    if (!field) return true; // 如果没有指定专业领域，默认相关
+    
+    // 将专业领域转换为小写，用于不区分大小写匹配
+    const lowercaseField = field.toLowerCase();
+    
+    // 检查分类名称是否包含专业领域关键词
+    if (category.name && category.name.toLowerCase().includes(lowercaseField)) {
+      return true;
+    }
+    
+    // 检查分类描述是否包含专业领域关键词
+    if (category.description && category.description.toLowerCase().includes(lowercaseField)) {
+      return true;
+    }
+    
+    // 默认不相关
+    return false;
   },
   
   // 生成随机题目
@@ -1450,36 +1867,97 @@ const generatePage = {
         content = response.choices[0].message.content;
       } else if (typeof response === 'string') {
         content = response;
+      } else if (response && typeof response === 'object') {
+        // 尝试直接将对象转换为字符串
+        content = JSON.stringify(response);
       } else {
+        console.warn('未知的响应格式，尝试使用本地生成');
         throw new Error('无效的AI响应格式');
       }
       
       // 尝试解析JSON
       let questions = [];
       
-      // 提取JSON部分
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || 
-                        content.match(/\[\s*\{\s*"id"\s*:/) ||
-                        content.match(/\{\s*"questions"\s*:\s*\[/);
-      
-      if (jsonMatch) {
-        let jsonText = jsonMatch[0];
-        // 移除可能的Markdown代码块标记
-        jsonText = jsonText.replace(/```json\s*/, '').replace(/\s*```/, '');
-        
-        // 解析JSON
-        const parsedData = JSON.parse(jsonText);
-        
-        // 处理可能的嵌套结构
-        if (Array.isArray(parsedData)) {
-          questions = parsedData;
-        } else if (parsedData.questions && Array.isArray(parsedData.questions)) {
-          questions = parsedData.questions;
-        } else {
-          throw new Error('无法解析AI返回的题目数据');
+      // 首先检查内容是否已经是JSON对象或数组
+      try {
+        if (typeof content === 'string') {
+          // 移除可能的干扰字符
+          content = content.trim();
+          
+          // 尝试提取JSON部分
+          const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || 
+                            content.match(/```\s*([\s\S]*?)\s*```/) || // 普通的代码块
+                            content.match(/\[\s*\{\s*"id"\s*:/) ||  // 开头是数组
+                            content.match(/\{\s*"questions"\s*:\s*\[/); // 开头是带questions属性的对象
+          
+          if (jsonMatch) {
+            let jsonText = jsonMatch[0];
+            // 尝试提取内容
+            if (jsonMatch[1]) {
+              jsonText = jsonMatch[1]; // 使用捕获组中的内容
+            } else {
+              // 移除可能的Markdown代码块标记
+              jsonText = jsonText.replace(/```json\s*/, '').replace(/\s*```/, '');
+              jsonText = jsonText.replace(/```\s*/, '').replace(/\s*```/, '');
+            }
+            
+            try {
+              // 解析JSON
+              const parsedData = JSON.parse(jsonText);
+              
+              // 处理可能的嵌套结构
+              if (Array.isArray(parsedData)) {
+                questions = parsedData;
+              } else if (parsedData.questions && Array.isArray(parsedData.questions)) {
+                questions = parsedData.questions;
+              } else {
+                // 尝试将整个响应作为可能的JSON解析
+                try {
+                  const fullResponse = JSON.parse(content);
+                  if (Array.isArray(fullResponse)) {
+                    questions = fullResponse;
+                  } else if (fullResponse.questions && Array.isArray(fullResponse.questions)) {
+                    questions = fullResponse.questions;
+                  } else {
+                    throw new Error('无法识别的JSON结构');
+                  }
+                } catch (e) {
+                  console.warn('解析整个响应为JSON失败, 使用本地生成:', e);
+                  throw new Error('无法解析AI返回的题目数据');
+                }
+              }
+            } catch (e) {
+              console.warn('解析JSON匹配内容失败, 尝试其他方法:', e);
+              throw new Error('JSON解析失败');
+            }
+          } else {
+            // 尝试直接将整个内容作为JSON解析
+            try {
+              const fullResponse = JSON.parse(content);
+              if (Array.isArray(fullResponse)) {
+                questions = fullResponse;
+              } else if (fullResponse.questions && Array.isArray(fullResponse.questions)) {
+                questions = fullResponse.questions;
+              } else {
+                throw new Error('无法识别的JSON结构');
+              }
+            } catch (e) {
+              console.warn('尝试直接解析为JSON失败:', e);
+              throw new Error('无法从AI响应中提取JSON数据');
+            }
+          }
         }
-      } else {
-        throw new Error('无法从AI响应中提取JSON数据');
+      } catch (jsonError) {
+        console.error('JSON解析处理中出现错误:', jsonError);
+        console.log('应用默认生成逻辑');
+        // 如果JSON解析出错，回退到生成通用题目
+        return this.generateSampleQuestions();
+      }
+      
+      // 验证问题是否为空
+      if (!questions || questions.length === 0) {
+        console.warn('未找到有效题目数据, 使用本地生成');
+        return this.generateSampleQuestions();
       }
       
       // 验证和处理题目
@@ -1543,8 +2021,8 @@ const generatePage = {
       
       return processedQuestions;
     } catch (error) {
-      console.error('解析AI响应失败:', error);
-      throw new Error('解析AI生成的题目失败，请重试');
+      console.error('解析AI响应失败, 使用本地生成题目:', error);
+      return this.generateSampleQuestions();
     }
   },
   
@@ -1926,139 +2404,66 @@ const generatePage = {
     }
   },
   
-  // 准备题库
+  // 准备题库 - 缓存版本以提高性能
   prepareQuestionBank() {
-    const bank = {
+    // 如果已有缓存，直接返回
+    if (this._questionBankCache) {
+      return this._questionBankCache;
+    }
+    
+    // 准备题库
+    const questionBank = {
       single: [],
       multiple: [],
       tf: [],
       short: []
     };
     
-    // 根据专业领域添加题目
-    if (this.fieldValue.includes('计算机') || this.fieldValue.includes('软件')) {
+    // 生成示例题库
+    for (let i = 0; i < 50; i++) {
       // 单选题
-      bank.single.push({
-        content: '以下哪个排序算法的平均时间复杂度为O(nlogn)？',
+      questionBank.single.push({
+        content: `关于${this.fieldValue}的第${i+1}个单选题`,
         options: [
-          '冒泡排序 - 通过相邻元素比较和交换，时间复杂度为O(n²)',
-          '快速排序 - 使用分治法策略，平均时间复杂度为O(nlogn)',
-          '插入排序 - 将元素逐个插入已排序序列，时间复杂度为O(n²)',
-          '选择排序 - 每次选择最小元素放置到已排序序列末尾，时间复杂度为O(n²)'
+          '选项A的内容',
+          '选项B的内容',
+          '选项C的内容',
+          '选项D的内容'
         ],
-        answer: 'B. 快速排序 - 使用分治法策略，平均时间复杂度为O(nlogn)<br><br><strong>解析：</strong>冒泡排序的平均时间复杂度为O(n²)，快速排序的平均时间复杂度为O(nlogn)，插入排序的平均时间复杂度为O(n²)，选择排序的平均时间复杂度为O(n²)。快速排序是一种分治策略的排序算法，通过选择基准元素将数组划分为两个子数组，然后递归排序子数组。尽管其最坏情况时间复杂度为O(n²)，但平均情况下表现为O(nlogn)，是实际应用中常用的高效排序算法。'
-      });
-      
-      bank.single.push({
-        content: '以下哪种数据结构最适合实现先进先出(FIFO)的操作？',
-        options: [
-          '栈(Stack) - 后进先出(LIFO)的数据结构',
-          '队列(Queue) - 先进先出(FIFO)的数据结构',
-          '二叉树(Binary Tree) - 具有层次结构的数据结构',
-          '哈希表(Hash Table) - 基于键值对的数据结构'
-        ],
-        answer: 'B. 队列(Queue) - 先进先出(FIFO)的数据结构<br><br><strong>解析：</strong>队列是一种先进先出(FIFO)的线性数据结构，元素只能从队尾插入，从队首删除，非常适合实现先进先出的操作。栈是后进先出(LIFO)的数据结构，元素只能从栈顶插入和删除。二叉树是一种非线性数据结构，每个节点最多有两个子节点。哈希表是一种基于键值对的数据结构，通过哈希函数将键映射到特定位置。'
-      });
-      
-      bank.single.push({
-        content: 'TCP协议和UDP协议的主要区别是什么？',
-        options: [
-          'TCP是面向连接的，UDP是无连接的',
-          'TCP比UDP传输速度更快',
-          'UDP提供可靠的数据传输，TCP不提供',
-          'TCP只用于局域网，UDP用于互联网'
-        ],
-        answer: 'A. TCP是面向连接的，UDP是无连接的<br><br><strong>解析：</strong>TCP(传输控制协议)是面向连接的协议，在数据传输前需要建立连接，提供可靠的数据传输服务，包括数据的顺序传输、错误检测和重传机制。UDP(用户数据报协议)是无连接的协议，不需要建立连接就可以发送数据，不保证数据的可靠传输，但传输速度更快，开销更小。TCP适用于要求可靠传输的场景，如文件传输、网页浏览等；UDP适用于实时性要求高的场景，如视频流、在线游戏等。'
+        answer: 'A. 选项A的内容'
       });
       
       // 多选题
-      bank.multiple.push({
-        content: '以下哪些是面向对象编程的特性？（可多选）',
+      questionBank.multiple.push({
+        content: `关于${this.fieldValue}的第${i+1}个多选题`,
         options: [
-          '封装 - 将数据和方法绑定在一起，对外隐藏实现细节',
-          '继承 - 允许子类获取父类的属性和方法，实现代码复用',
-          '多态 - 同一操作作用于不同对象产生不同行为',
-          '反射 - 在运行时检查和修改程序结构和行为的能力'
+          '选项A的内容',
+          '选项B的内容',
+          '选项C的内容',
+          '选项D的内容'
         ],
-        answer: 'A, B, C. 封装、继承和多态<br><br><strong>解析：</strong>面向对象编程的三大基本特性是封装、继承和多态。<br>- 封装：将数据和操作数据的方法绑定在一起，对外部隐藏实现细节<br>- 继承：允许子类继承父类的属性和方法，实现代码复用<br>- 多态：同一操作作用于不同的对象，可以有不同的解释和产生不同的执行结果<br>反射是一种允许程序在运行时检查和修改自身结构和行为的能力，它是一些面向对象语言的特性，但不是面向对象编程的核心特性。'
-      });
-      
-      bank.multiple.push({
-        content: '以下哪些是常见的设计模式？（可多选）',
-        options: [
-          '单例模式 - 确保一个类只有一个实例，并提供一个全局访问点',
-          '观察者模式 - 定义对象间的一种一对多依赖关系',
-          '工厂模式 - 定义一个创建对象的接口，让子类决定实例化哪一个类',
-          'HTML模式 - 一种用于构建网页的设计模式'
-        ],
-        answer: 'A, B, C. 单例模式、观察者模式和工厂模式<br><br><strong>解析：</strong>设计模式是软件设计中常见问题的典型解决方案。单例模式确保一个类只有一个实例，并提供一个全局访问点，常用于日志记录器、配置管理等。观察者模式定义了对象之间的一种一对多依赖关系，当一个对象状态改变时，所有依赖它的对象都会得到通知，常用于事件处理系统。工厂模式提供了创建对象的接口，但允许子类决定要实例化的类，常用于对象创建过程复杂的场景。"HTML模式"不是一种公认的设计模式。'
+        answer: 'A, B. 选项A和选项B的内容'
       });
       
       // 判断题
-      bank.tf.push({
-        content: 'JavaScript是一种强类型编程语言。（判断对错）',
-        answer: 'B. 错误。<br><br><strong>解析：</strong>JavaScript是一种弱类型（或称动态类型）编程语言，这意味着变量的类型可以在运行时改变，不需要事先声明类型。例如，一个变量可以先赋值为字符串，然后再赋值为数字或其他类型。与之相对的是强类型语言（如Java、C++、TypeScript等），它们要求变量的类型在声明时确定，并且不允许随意改变。强类型系统可以在编译时捕获类型错误，而JavaScript的类型错误通常只能在运行时发现。'
-      });
-      
-      bank.tf.push({
-        content: 'HTTP是一种无状态协议。（判断对错）',
-        answer: 'A. 正确。<br><br><strong>解析：</strong>HTTP(超文本传输协议)是一种无状态协议，这意味着服务器不会在不同请求之间保留客户端的信息。每个请求都是独立的，服务器不知道之前的请求。为了解决这个问题，Web应用程序使用各种技术来维护状态，如cookies、会话(session)、隐藏表单字段、URL参数等。这些技术允许在无状态的HTTP协议上构建有状态的应用程序。'
+      questionBank.tf.push({
+        content: `${this.fieldValue}领域中的某个概念是正确的。（第${i+1}题）`,
+        options: ['正确', '错误'],
+        answer: 'A. 正确'
       });
       
       // 简答题
-      bank.short.push({
-        content: '简述HTTP和HTTPS的区别。（简答题）',
-        answer: 'HTTP是超文本传输协议，而HTTPS是安全的超文本传输协议。区别主要有：1. HTTPS使用SSL/TLS加密数据传输；2. HTTP使用80端口，HTTPS使用443端口；3. HTTPS需要CA证书，而HTTP不需要；4. HTTPS比HTTP更安全，但性能略差。'
-      });
-      
-      bank.short.push({
-        content: '简述什么是RESTful API及其设计原则。（简答题）',
-        answer: 'RESTful API是一种基于REST(表述性状态转移)架构风格的API设计方法。主要设计原则包括：1. 使用HTTP方法明确表示操作(GET获取资源，POST创建资源，PUT更新资源，DELETE删除资源)；2. 无状态性，每个请求包含所有必要信息；3. 资源的URI应清晰表示资源，而不是操作；4. 使用HTTP状态码表示请求结果；5. 返回JSON或XML等标准格式数据；6. 版本控制；7. 良好的错误处理和文档。RESTful API具有简单、可扩展、可靠和无状态等特点，广泛应用于Web服务开发。'
-      });
-    } else if (this.fieldValue.includes('医') || this.fieldValue.includes('生物')) {
-      // 添加医学/生物学题目
-      // ... 这里可以添加更多医学/生物学相关题目 ...
-      
-      // 单选题
-      bank.single.push({
-        content: '以下哪种维生素是水溶性的？（单选题）',
-        options: [
-          '维生素A - 脂溶性维生素，主要存在于动物肝脏和胡萝卜中',
-          '维生素C - 水溶性维生素，主要存在于新鲜水果和蔬菜中',
-          '维生素D - 脂溶性维生素，可以通过皮肤接触阳光合成',
-          '维生素E - 脂溶性维生素，是重要的抗氧化剂'
-        ],
-        answer: 'B. 维生素C<br><br><strong>解析：</strong>维生素按溶解性可分为脂溶性和水溶性两类。维生素A、D、E、K是脂溶性维生素，而维生素C和B族维生素（如B1、B2、B6、B12等）是水溶性维生素。水溶性维生素在体内不易储存，多余的会通过尿液排出体外，因此需要经常从食物中补充。维生素C主要来源于新鲜蔬菜和水果，具有抗氧化、增强免疫力和促进胶原蛋白合成等作用。'
-      });
-      
-      // 多选题
-      bank.multiple.push({
-        content: '以下哪些疾病是由病毒引起的？（可多选）',
-        options: [
-          '流感 - 由流感病毒引起的急性呼吸道传染病',
-          '肺炎 - 通常由细菌如肺炎链球菌引起的肺部感染',
-          '艾滋病 - 由人类免疫缺陷病毒(HIV)引起的免疫系统疾病',
-          '霍乱 - 由霍乱弧菌引起的急性肠道传染病'
-        ],
-        answer: 'A, C. 流感和艾滋病<br><br><strong>解析：</strong>流感是由流感病毒引起的急性呼吸道传染病。艾滋病是由人类免疫缺陷病毒(HIV)引起的免疫系统疾病。肺炎可由多种病原体引起，包括细菌（如肺炎链球菌）、病毒、真菌等，但典型的肺炎通常是由细菌引起的。霍乱是由霍乱弧菌引起的急性肠道传染病，属于细菌性疾病，而非病毒性疾病。因此，流感和艾滋病是病毒性疾病，而典型的肺炎和霍乱是细菌性疾病。'
-      });
-      
-      // 判断题
-      bank.tf.push({
-        content: '人体的正常体温是36-37摄氏度。（判断对错）',
-        answer: 'A. 正确。<br><br><strong>解析：</strong>人体的正常体温范围在36-37摄氏度之间，平均约为36.5摄氏度。这是健康人体的正常温度范围，低于这个范围可能表示低体温症，高于这个范围则可能表示发热。体温受多种因素影响，包括一天中的时间（通常早晨较低，傍晚较高）、月经周期、运动、情绪状态等。体温是评估健康状况的重要指标之一，持续的异常体温可能是疾病的信号。'
-      });
-      
-      // 简答题
-      bank.short.push({
-        content: '简述血液循环系统的主要组成部分及功能。（简答题）',
-        answer: '血液循环系统主要由心脏、血管和血液组成。心脏作为泵，推动血液在血管中流动；血管分为动脉、静脉和毛细血管，用于运输血液；血液携带氧气、营养物质到组织和器官，并带走二氧化碳和废物。主要功能包括运输氧气和营养物质、调节体温、保护身体免受感染和维持体内平衡等。'
+      questionBank.short.push({
+        content: `请简述${this.fieldValue}领域中的某个概念。（第${i+1}题）`,
+        options: [],
+        answer: `这是关于${this.fieldValue}领域某个概念的详细解答，包括定义、特点和应用。`
       });
     }
     
-    // 可以继续添加其他领域的题目...
+    // 缓存题库以提高性能
+    this._questionBankCache = questionBank;
     
-    return bank;
+    return questionBank;
   },
   
   // 生成通用题目
@@ -2122,7 +2527,7 @@ const generatePage = {
       window.electronAPI.saveHistory(historyItem)
         .then(result => {
           if (result.success) {
-            alert('题目已成功保存到历史记录！');
+            this.showSaveSuccessMessage();
           } else {
             alert(`保存失败: ${result.error || '未知错误'}`);
           }
@@ -2143,7 +2548,31 @@ const generatePage = {
       }
       
       localStorage.setItem('question_history', JSON.stringify(history));
-      alert('题目已成功保存到历史记录！');
+      this.showSaveSuccessMessage();
+    }
+  },
+  
+  // 显示保存成功提示
+  showSaveSuccessMessage() {
+    // 创建提示元素
+    const message = document.createElement('div');
+    message.className = 'save-success-message';
+    message.innerHTML = '<i class="bi bi-check-circle"></i> 题目已成功保存到历史记录！';
+    
+    // 添加到容器
+    const container = document.getElementById('questions-container');
+    if (container) {
+      // 如果容器有定位样式，确保消息框定位正确
+      if (getComputedStyle(container).position === 'static') {
+        container.style.position = 'relative';
+      }
+      
+      container.appendChild(message);
+      
+      // 3秒后自动移除
+      setTimeout(() => {
+        message.remove();
+      }, 3000);
     }
   },
   
@@ -2234,15 +2663,18 @@ const generatePage = {
   
   // 检查是否使用自定义API密钥
   checkIfUsingCustomKey() {
-    // 检查当前API设置
-    const settings = settingsPage.settings || {};
-    const apiSettings = settings.api || {};
+    // 获取当前设置
+    if (!settingsPage.settings || !settingsPage.settings.api) {
+      return false;
+    }
     
-    // 如果API密钥不是默认的，且不为空，认为是自定义密钥
-    return (apiSettings.key && 
-           apiSettings.key !== TONGYI_API_KEY && 
-           apiSettings.key !== DEEPSEEK_API_KEY && 
-           apiSettings.key.trim() !== '');
+    const apiSettings = settingsPage.settings.api;
+    
+    // 检查是否有有效的自定义API密钥
+    return apiSettings.provider === 'custom' && 
+           apiSettings.key && 
+           apiSettings.key.trim() !== '' && 
+           apiSettings.key !== 'YOUR_API_KEY';
   },
   
   // 检查每日生成次数限制
@@ -2309,12 +2741,12 @@ const generatePage = {
       }
     } else {
       // 浏览器环境下，使用localStorage
-      const storedData = localStorage.getItem('daily_generation_data');
-      if (storedData) {
+      const data = localStorage.getItem('daily_generation_data');
+      if (data) {
         try {
-          const data = JSON.parse(storedData);
-          dailyGenerationCount = data.count || 0;
-          lastGenerationDate = data.date || null;
+          const parsedData = JSON.parse(data);
+          dailyGenerationCount = parsedData.count || 0;
+          lastGenerationDate = parsedData.date || null;
         } catch (error) {
           console.error('解析生成次数数据失败:', error);
         }
@@ -2322,7 +2754,25 @@ const generatePage = {
     }
   },
   
-  // 显示我花聊天气泡
+  // 获取难度文本
+  getDifficultyText(difficulty) {
+    switch (difficulty) {
+      case 'level1': return '初窥门径';
+      case 'level2': return '问道寻幽';
+      case 'level3': return '破茧凌虚';
+      case 'level4': return '踏月摘星';
+      case 'level5': return '弈天问道';
+      case 'level6': return '无相劫海';
+      case 'level7': return '太一归墟';
+      // 保留旧版本的兼容性
+      case 'easy': return '初窥门径';
+      case 'medium': return '踏月摘星';
+      case 'hard': return '太一归墟';
+      default: return '踏月摘星';
+    }
+  },
+  
+  // 显示花朵对话气泡
   showFlowerChatBubble() {
     const chatBubble = document.getElementById('flower-chat-bubble');
     if (!chatBubble) return;
@@ -2441,6 +2891,21 @@ const historyPage = {
     // 加载历史记录并设置事件监听
     this.loadHistory();
     this.setupEventListeners();
+  },
+  
+  // 获取难度文本描述
+  getDifficultyText(difficulty) {
+    const difficultyMap = {
+      'level1': '初窥门径',
+      'level2': '问道寻幽',
+      'level3': '破茧凌虚',
+      'level4': '踏月摘星',
+      'level5': '弈天问道',
+      'level6': '无相劫海',
+      'level7': '太一归墟'
+    };
+    
+    return difficultyMap[difficulty] || '未知难度';
   },
   
   // 加载历史记录
@@ -2642,24 +3107,6 @@ const historyPage = {
     `;
   },
   
-  // 获取难度文本
-  getDifficultyText(difficulty) {
-    switch (difficulty) {
-      case 'level1': return '初窥门径';
-      case 'level2': return '问道寻幽';
-      case 'level3': return '破茧凌虚';
-      case 'level4': return '踏月摘星';
-      case 'level5': return '弈天问道';
-      case 'level6': return '无相劫海';
-      case 'level7': return '太一归墟';
-      // 保留旧版本的兼容性
-      case 'easy': return '初窥门径';
-      case 'medium': return '踏月摘星';
-      case 'hard': return '太一归墟';
-      default: return '踏月摘星';
-    }
-  },
-  
   // 设置事件监听
   setupEventListeners() {
     // 刷新按钮
@@ -2836,27 +3283,32 @@ const historyPage = {
 
 // 设置页面
 const settingsPage = {
-  // 当前设置
+  // 默认设置
   settings: {
     theme: {
-      type: 'default',
+      type: 'light',
       bgColor: '#f8f9fa',
       bgImageUrl: '',
       bgImageData: null,
-      flowerEnabled: false // 添加我花选项
+      flowerEnabled: false
     },
     api: {
       provider: 'tongyi',
-      key: '',
-      endpoint: ''
+      key: TONGYI_API_KEY,
+      endpoint: 'https://api.tongyi.aliyun.com/v1/chat/completions',
+      model: 'qwen-max'
+    },
+    questionBank: {
+      useCustom: true,
+      banks: []
     }
   },
   
-  // 初始化页面
+  // 初始化设置页面
   init() {
-    console.log('初始化设置页面');
     this.loadSettings();
     this.setupEventListeners();
+    this.loadQuestionBanks();
   },
   
   // 加载设置
@@ -2878,12 +3330,11 @@ const settingsPage = {
         });
     } else {
       // 浏览器环境下，使用localStorage
-      const storedSettings = localStorage.getItem('app_settings');
-      
-      if (storedSettings) {
+      const data = localStorage.getItem('app_settings');
+      if (data) {
         try {
-          const parsedSettings = JSON.parse(storedSettings);
-          this.settings = this.mergeSettings(this.settings, parsedSettings);
+          const parsedData = JSON.parse(data);
+          this.settings = this.mergeSettings(this.settings, parsedData);
         } catch (error) {
           console.error('解析存储的设置失败:', error);
         }
@@ -2944,6 +3395,15 @@ const settingsPage = {
     // 更新背景预览
     this.updateBackgroundPreview();
     
+    // 设置自定义题库选项
+    const useCustomBank = document.getElementById('use-custom-bank');
+    if (useCustomBank) {
+      useCustomBank.checked = this.settings.questionBank && this.settings.questionBank.useCustom;
+    }
+    
+    // 显示题库列表
+    this.renderQuestionBankList();
+    
     // 设置API提供商
     const apiProviderSelect = document.getElementById('ai-provider');
     if (apiProviderSelect) {
@@ -2961,6 +3421,12 @@ const settingsPage = {
     const apiEndpointInput = document.getElementById('api-endpoint');
     if (apiEndpointInput && this.settings.api.endpoint) {
       apiEndpointInput.value = this.settings.api.endpoint;
+    }
+    
+    // 设置API模型
+    const apiModelInput = document.getElementById('api-model');
+    if (apiModelInput && this.settings.api.model) {
+      apiModelInput.value = this.settings.api.model;
     }
   },
   
@@ -3054,74 +3520,150 @@ const settingsPage = {
       });
     }
     
+    // 监听API模型变化
+    const apiModelInput = document.getElementById('api-model');
+    if (apiModelInput) {
+      apiModelInput.addEventListener('change', (e) => {
+        this.settings.api.model = e.target.value;
+      });
+    }
+    
     // 监听密码显示切换
-    const togglePassword = document.querySelector('.toggle-password');
-    if (togglePassword) {
-      togglePassword.addEventListener('click', () => {
+    const togglePasswordBtn = document.querySelector('.toggle-password');
+    if (togglePasswordBtn) {
+      togglePasswordBtn.addEventListener('click', () => {
         const apiKeyInput = document.getElementById('api-key');
-        const icon = togglePassword.querySelector('i');
-        
-        if (apiKeyInput.type === 'password') {
-          apiKeyInput.type = 'text';
-          icon.classList.remove('bi-eye');
-          icon.classList.add('bi-eye-slash');
-        } else {
-          apiKeyInput.type = 'password';
-          icon.classList.remove('bi-eye-slash');
-          icon.classList.add('bi-eye');
+        if (apiKeyInput) {
+          const type = apiKeyInput.getAttribute('type') === 'password' ? 'text' : 'password';
+          apiKeyInput.setAttribute('type', type);
+          
+          // 切换图标
+          const icon = togglePasswordBtn.querySelector('i');
+          if (icon) {
+            icon.className = type === 'password' ? 'bi bi-eye' : 'bi bi-eye-slash';
+          }
         }
+      });
+    }
+    
+    // 拖放区域事件处理
+    const dropzone = document.getElementById('bank-dropzone');
+    if (dropzone) {
+      // 阻止浏览器默认拖放行为
+      ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, preventDefaults, false);
+        document.body.addEventListener(eventName, preventDefaults, false);
+      });
+      
+      // 高亮拖放区域
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropzone.addEventListener(eventName, () => {
+          dropzone.classList.add('dragover');
+        }, false);
+      });
+      
+      // 移除高亮
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, () => {
+          dropzone.classList.remove('dragover');
+        }, false);
+      });
+      
+      // 处理文件拖放
+      dropzone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        
+        if (files.length > 0) {
+          this.handleBankFileUpload(files[0]);
+        }
+      }, false);
+      
+      // 点击上传
+      dropzone.addEventListener('click', () => {
+        const fileInput = document.getElementById('bank-upload');
+        if (fileInput) {
+          fileInput.click();
+        }
+      });
+      
+      // 文件选择处理
+      const bankUpload = document.getElementById('bank-upload');
+      if (bankUpload) {
+        bankUpload.addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            this.handleBankFileUpload(file);
+          }
+        });
+      }
+      
+      // 辅助函数：阻止默认行为
+      function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+    
+    // 监听自定义题库开关
+    const useCustomBank = document.getElementById('use-custom-bank');
+    if (useCustomBank) {
+      useCustomBank.addEventListener('change', (e) => {
+        this.settings.questionBank.useCustom = e.target.checked;
+      });
+    }
+    
+    // 监听题库格式说明链接
+    const showBankFormat = document.getElementById('show-bank-format');
+    if (showBankFormat) {
+      showBankFormat.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.showBankFormatGuide();
+      });
+    }
+    
+    // 监听示例题库下载链接
+    const downloadSample = document.getElementById('download-sample');
+    if (downloadSample) {
+      downloadSample.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.showSampleBankOptions();
       });
     }
     
     // 监听保存设置按钮
-    const saveButton = document.getElementById('save-settings');
-    if (saveButton) {
-      saveButton.addEventListener('click', () => {
+    const saveSettingsBtn = document.getElementById('save-settings');
+    if (saveSettingsBtn) {
+      saveSettingsBtn.addEventListener('click', () => {
         this.saveSettings();
+        
+        // 显示成功消息
+        const settingsContainer = document.querySelector('.settings-container');
+        if (settingsContainer) {
+          const successMessage = document.createElement('div');
+          successMessage.className = 'alert alert-success mt-3';
+          successMessage.innerHTML = '<i class="bi bi-check-circle"></i> 设置已保存';
+          settingsContainer.appendChild(successMessage);
+          
+          // 3秒后移除消息
+          setTimeout(() => {
+            successMessage.remove();
+          }, 3000);
+        }
       });
     }
     
     // 监听重置设置按钮
-    const resetButton = document.getElementById('reset-settings');
-    if (resetButton) {
-      resetButton.addEventListener('click', () => {
+    const resetSettingsBtn = document.getElementById('reset-settings');
+    if (resetSettingsBtn) {
+      resetSettingsBtn.addEventListener('click', () => {
         pageManager.showCustomConfirm(
-          '重置确认',
-          '确定要重置所有设置为默认值吗？',
+          '重置设置',
+          '确定要恢复默认设置吗？这将丢失您的所有自定义设置。',
           () => {
             this.resetSettings();
           }
         );
-      });
-    }
-    
-    // 添加清除历史题目记录按钮的事件监听
-    const clearHistoryButton = document.getElementById('clear-question-history');
-    if (clearHistoryButton) {
-      clearHistoryButton.addEventListener('click', () => {
-        pageManager.showCustomConfirm(
-          '清除确认',
-          '确定要清除所有历史题目记录吗？这将允许系统重新生成这些题目。',
-          () => {
-            generatePage.clearUsedQuestionContents();
-            pageManager.showCustomAlert('成功', '历史题目记录已清除，系统将可以重新生成这些题目。');
-          }
-        );
-      });
-    }
-    
-    // 监听赞助链接点击，确保在外部浏览器中打开
-    const sponsorLink = document.getElementById('sponsor-link');
-    if (sponsorLink) {
-      sponsorLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (isElectron()) {
-          // 使用Electron的shell.openExternal打开链接
-          window.electronAPI.openExternal(sponsorLink.href);
-        } else {
-          // 在普通浏览器中打开
-          window.open(sponsorLink.href, '_blank', 'noopener,noreferrer');
-        }
       });
     }
   },
@@ -3320,7 +3862,632 @@ const settingsPage = {
     } else if (this.settings.api.provider === 'deepseek' && this.settings.api.key) {
       DEEPSEEK_API_KEY = this.settings.api.key;
     }
-  }
+  },
+  
+  // 加载自定义题库
+  loadQuestionBanks() {
+    if (isElectron()) {
+      // Electron环境下，使用IPC通信加载题库
+      if (window.electronAPI && window.electronAPI.loadQuestionBanks) {
+        window.electronAPI.loadQuestionBanks()
+          .then(result => {
+            if (result.success && result.banks) {
+              customQuestionBanks = result.banks;
+              this.renderQuestionBankList();
+            }
+          })
+          .catch(error => {
+            console.error('加载题库失败:', error);
+          });
+      }
+    } else {
+      // 浏览器环境下，使用localStorage
+      const banks = localStorage.getItem('custom_question_banks');
+      if (banks) {
+        try {
+          customQuestionBanks = JSON.parse(banks);
+          this.renderQuestionBankList();
+        } catch (error) {
+          console.error('解析题库数据失败:', error);
+        }
+      }
+    }
+  },
+  
+  // 渲染题库列表
+  renderQuestionBankList() {
+    const container = document.getElementById('question-bank-list');
+    if (!container) return;
+    
+    if (customQuestionBanks.length === 0) {
+      container.innerHTML = `<div class="text-center p-3 text-muted">暂无自定义题库</div>`;
+      return;
+    }
+    
+    let html = '';
+    customQuestionBanks.forEach(bank => {
+      html += `
+        <div class="bank-item" data-id="${bank.id}">
+          <div class="bank-item-info">
+            <div class="bank-item-title">${bank.name}</div>
+            <div class="bank-item-meta">
+              <span>包含题目: ${this.countBankQuestions(bank)}</span>
+              <span>上传时间: ${bank.uploadDate}</span>
+            </div>
+          </div>
+          <div class="bank-item-actions">
+            <button class="btn btn-sm btn-outline-danger delete-bank" data-id="${bank.id}">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    });
+    
+    container.innerHTML = html;
+    
+    // 添加删除事件监听
+    container.querySelectorAll('.delete-bank').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const bankId = btn.getAttribute('data-id');
+        this.deleteQuestionBank(bankId);
+      });
+    });
+  },
+  
+  // 计算题库中的题目数量
+  countBankQuestions(bank) {
+    let count = 0;
+    if (bank.questions) {
+      // 直接计算题目数组长度
+      count = bank.questions.length;
+    } else if (bank.categories) {
+      // 计算所有分类中的题目数量
+      Object.values(bank.categories).forEach(category => {
+        if (Array.isArray(category.questions)) {
+          count += category.questions.length;
+        }
+      });
+    }
+    return count;
+  },
+  
+  // 添加新题库
+  addQuestionBank(bank) {
+    // 生成唯一ID
+    bank.id = `bank-${Date.now()}`;
+    bank.uploadDate = new Date().toLocaleString();
+    
+    // 添加到数组
+    customQuestionBanks.push(bank);
+    
+    // 保存题库
+    this.saveQuestionBanks();
+    
+    // 更新UI
+    this.renderQuestionBankList();
+    
+    return bank.id;
+  },
+  
+  // 删除题库
+  deleteQuestionBank(bankId) {
+    // 确认删除
+    pageManager.showCustomConfirm(
+      '删除题库',
+      '确定要删除这个题库吗？此操作不可撤销。',
+      () => {
+        // 从数组中移除
+        customQuestionBanks = customQuestionBanks.filter(bank => bank.id !== bankId);
+        
+        // 保存更新后的题库列表
+        this.saveQuestionBanks();
+        
+        // 更新UI
+        this.renderQuestionBankList();
+      }
+    );
+  },
+  
+  // 保存题库
+  saveQuestionBanks() {
+    if (isElectron()) {
+      // Electron环境下，使用IPC通信保存
+      if (window.electronAPI && window.electronAPI.saveQuestionBanks) {
+        window.electronAPI.saveQuestionBanks(customQuestionBanks)
+          .catch(error => {
+            console.error('保存题库失败:', error);
+          });
+      }
+    } else {
+      // 浏览器环境下，使用localStorage
+      try {
+        localStorage.setItem('custom_question_banks', JSON.stringify(customQuestionBanks));
+      } catch (error) {
+        console.error('保存题库到本地存储失败:', error);
+        // 如果数据太大，可能会超出localStorage限制
+        if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+          alert('题库数据过大，无法保存到本地存储。建议减少题库数量或使用桌面版应用。');
+        }
+      }
+    }
+    
+    // 更新设置中的题库状态
+    this.settings.questionBank.banks = customQuestionBanks.map(bank => ({
+      id: bank.id,
+      name: bank.name
+    }));
+    
+    // 保存设置
+    this.saveSettings();
+  },
+  
+  // 显示题库格式说明
+  showBankFormatGuide() {
+    const modal = document.createElement('div');
+    modal.className = 'bank-format-modal';
+    
+    const exampleBank = {
+      name: "计算机科学基础题库",
+      description: "包含计算机科学基础知识的题目集合",
+      version: "1.0",
+      categories: {
+        "数据结构": {
+          name: "数据结构",
+          questions: [
+            {
+              id: "ds-001",
+              type: "single",
+              content: "以下哪种数据结构适合实现队列？",
+              options: [
+                "栈 - 后进先出的数据结构",
+                "链表 - 由节点组成的线性集合",
+                "数组 - 固定大小的顺序集合",
+                "树 - 层次结构的集合"
+              ],
+              answer: "B. 链表 - 由节点组成的线性集合\n\n解析：链表是实现队列的常用数据结构，它支持高效的头部删除和尾部插入操作，非常适合实现队列的先进先出特性。"
+            }
+          ]
+        }
+      }
+    };
+    
+    modal.innerHTML = `
+      <div class="bank-format-content">
+        <div class="bank-format-header">
+          <h3>题库格式说明</h3>
+          <span class="bank-format-close">&times;</span>
+        </div>
+        <div class="bank-format-body">
+          <p>自定义题库需要使用JSON格式，包含以下结构：</p>
+          <ul>
+            <li><strong>name</strong>: 题库名称</li>
+            <li><strong>description</strong>: 题库描述</li>
+            <li><strong>version</strong>: 版本号</li>
+            <li><strong>categories</strong>: 分类集合，或者</li>
+            <li><strong>questions</strong>: 题目数组（如果不需要分类）</li>
+          </ul>
+          
+          <p>每个题目需要包含以下字段：</p>
+          <ul>
+            <li><strong>id</strong>: 题目ID</li>
+            <li><strong>type</strong>: 题目类型（single-单选，multiple-多选，tf-判断，short-简答）</li>
+            <li><strong>content</strong>: 题目内容</li>
+            <li><strong>options</strong>: 选项数组（单选、多选题必需）</li>
+            <li><strong>answer</strong>: 答案及解析</li>
+          </ul>
+          
+          <p>示例题库结构：</p>
+          <div class="bank-format-example">
+            <pre>${JSON.stringify(exampleBank, null, 2)}</pre>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // 添加关闭事件
+    const closeBtn = modal.querySelector('.bank-format-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        document.body.removeChild(modal);
+      });
+    }
+    
+    // 点击模态框背景关闭
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        document.body.removeChild(modal);
+      }
+    });
+  },
+  
+  // 处理题库文件上传
+  handleBankFileUpload(file) {
+    if (!file) return;
+    
+    // 检查文件类型
+    if (file.type !== 'application/json' && !file.name.endsWith('.json')) {
+      pageManager.showCustomAlert('文件类型错误', '请上传JSON格式的题库文件');
+      return;
+    }
+    
+    // 读取文件内容
+    const reader = new FileReader();
+    
+    reader.onload = (event) => {
+      try {
+        const bankData = JSON.parse(event.target.result);
+        
+        // 验证题库格式
+        if (!bankData.name) {
+          throw new Error('题库缺少name字段');
+        }
+        
+        if (!bankData.questions && !bankData.categories) {
+          throw new Error('题库缺少questions或categories字段');
+        }
+        
+        // 添加题库
+        const bankId = this.addQuestionBank(bankData);
+        
+        // 显示成功消息
+        pageManager.showCustomAlert('上传成功', `题库"${bankData.name}"已成功添加！`);
+        
+        // 清空文件输入框
+        const bankUpload = document.getElementById('bank-upload');
+        if (bankUpload) {
+          bankUpload.value = '';
+        }
+      } catch (error) {
+        console.error('解析题库文件失败:', error);
+        pageManager.showCustomAlert('文件格式错误', `题库文件格式错误: ${error.message}`);
+      }
+    };
+    
+    reader.onerror = () => {
+      pageManager.showCustomAlert('读取失败', '读取文件失败，请重试');
+    };
+    
+    reader.readAsText(file);
+  },
+  
+  // 显示示例题库下载选项
+  showSampleBankOptions() {
+    const modal = document.createElement('div');
+    modal.className = 'bank-format-modal';
+    
+    modal.innerHTML = `
+      <div class="bank-format-content">
+        <div class="bank-format-header">
+          <h3>示例题库下载</h3>
+          <span class="bank-format-close">&times;</span>
+        </div>
+        
+        <div class="sample-bank-container">
+          <h5>选择示例题库</h5>
+          <p>这些示例题库可以帮助您了解题库的格式，也可以作为创建自己题库的模板。</p>
+          
+          <div class="sample-bank-options">
+            <a href="#" class="sample-bank-btn" data-sample="computer">
+              <i class="bi bi-cpu"></i>计算机科学题库
+            </a>
+            <a href="#" class="sample-bank-btn" data-sample="medical">
+              <i class="bi bi-heart-pulse"></i>医学健康题库
+            </a>
+            <a href="#" class="sample-bank-btn" data-sample="business">
+              <i class="bi bi-graph-up"></i>商业管理题库
+            </a>
+            <a href="#" class="sample-bank-btn" data-sample="empty">
+              <i class="bi bi-file-earmark-plus"></i>空白模板
+            </a>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // 添加关闭事件
+    const closeBtn = modal.querySelector('.bank-format-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        document.body.removeChild(modal);
+      });
+    }
+    
+    // 点击模态框背景关闭
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        document.body.removeChild(modal);
+      }
+    });
+    
+    // 点击下载按钮事件
+    const sampleButtons = modal.querySelectorAll('.sample-bank-btn');
+    sampleButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const sampleType = btn.getAttribute('data-sample');
+        this.downloadSampleBank(sampleType);
+        document.body.removeChild(modal);
+      });
+    });
+  },
+  
+  // 下载示例题库
+  downloadSampleBank(type) {
+    let bankData = null;
+    let fileName = '';
+    
+    switch (type) {
+      case 'computer':
+        bankData = this.getComputerSampleBank();
+        fileName = '计算机科学题库示例.json';
+        break;
+      case 'medical':
+        bankData = this.getMedicalSampleBank();
+        fileName = '医学健康题库示例.json';
+        break;
+      case 'business':
+        bankData = this.getBusinessSampleBank();
+        fileName = '商业管理题库示例.json';
+        break;
+      case 'empty':
+        bankData = this.getEmptySampleBank();
+        fileName = '题库空白模板.json';
+        break;
+      default:
+        bankData = this.getEmptySampleBank();
+        fileName = '题库模板.json';
+    }
+    
+    // 将题库数据转换为JSON字符串
+    const dataStr = JSON.stringify(bankData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    
+    // 创建下载链接
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    
+    // 点击链接进行下载
+    link.click();
+    
+    // 清理
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  },
+  
+  // 获取计算机科学示例题库
+  getComputerSampleBank() {
+    return {
+      name: "计算机科学基础题库",
+      description: "包含计算机科学基础知识的题目集合",
+      version: "1.0",
+      categories: {
+        "数据结构": {
+          name: "数据结构",
+          questions: [
+            {
+              id: "ds-001",
+              type: "single",
+              content: "以下哪种数据结构适合实现队列？",
+              options: [
+                "栈 - 后进先出的数据结构",
+                "链表 - 由节点组成的线性集合",
+                "数组 - 固定大小的顺序集合",
+                "树 - 层次结构的集合"
+              ],
+              answer: "B. 链表 - 由节点组成的线性集合\n\n解析：链表是实现队列的常用数据结构，它支持高效的头部删除和尾部插入操作，非常适合实现队列的先进先出特性。"
+            },
+            {
+              id: "ds-002",
+              type: "multiple",
+              content: "以下哪些数据结构是非线性的？（多选）",
+              options: [
+                "数组",
+                "树",
+                "图",
+                "链表"
+              ],
+              answer: "B, C. 树和图\n\n解析：非线性数据结构是指元素之间不是按线性顺序存储的结构。树和图都是非线性数据结构，而数组和链表是线性数据结构。"
+            }
+          ]
+        },
+        "算法": {
+          name: "算法",
+          questions: [
+            {
+              id: "algo-001",
+              type: "single",
+              content: "快速排序的平均时间复杂度是多少？",
+              options: [
+                "O(n)",
+                "O(n log n)",
+                "O(n²)",
+                "O(log n)"
+              ],
+              answer: "B. O(n log n)\n\n解析：快速排序是一种分治算法，平均情况下时间复杂度为O(n log n)，最坏情况下为O(n²)。"
+            },
+            {
+              id: "algo-002",
+              type: "tf",
+              content: "二分查找算法只能应用于有序数组。",
+              options: ["正确", "错误"],
+              answer: "A. 正确\n\n解析：二分查找要求数据结构必须是有序的，这样才能通过比较中间元素来确定目标元素在左半部分还是右半部分。"
+            }
+          ]
+        }
+      }
+    };
+  },
+  
+  // 获取医学健康示例题库
+  getMedicalSampleBank() {
+    return {
+      name: "医学健康基础题库",
+      description: "包含医学和健康知识的题目集合",
+      version: "1.0",
+      categories: {
+        "解剖学": {
+          name: "解剖学",
+          questions: [
+            {
+              id: "anat-001",
+              type: "single",
+              content: "人体最大的器官是什么？",
+              options: [
+                "心脏",
+                "肝脏",
+                "皮肤",
+                "大脑"
+              ],
+              answer: "C. 皮肤\n\n解析：皮肤是人体最大的器官，成人皮肤面积约为1.5-2平方米，重约4.5-5千克，约占体重的16%。"
+            },
+            {
+              id: "anat-002",
+              type: "tf",
+              content: "成人骨骼系统一共有206块骨头。",
+              options: ["正确", "错误"],
+              answer: "A. 正确\n\n解析：成人骨骼系统一共有206块骨头，包括长骨、短骨、扁骨和不规则骨。"
+            }
+          ]
+        },
+        "生理学": {
+          name: "生理学",
+          questions: [
+            {
+              id: "phys-001",
+              type: "multiple",
+              content: "以下哪些是心脏的功能？（多选）",
+              options: [
+                "将氧气输送到身体各部分",
+                "产生抗体",
+                "泵送血液",
+                "调节体温"
+              ],
+              answer: "A, C. 将氧气输送到身体各部分、泵送血液\n\n解析：心脏的主要功能是泵送血液，通过血液将氧气和营养物质输送到身体各部分，并将二氧化碳和废物带走。产生抗体是免疫系统的功能，调节体温是体温调节系统的功能。"
+            },
+            {
+              id: "phys-002",
+              type: "short",
+              content: "简述人体血液循环的过程。",
+              options: [],
+              answer: "人体血液循环分为体循环和肺循环。在体循环中，含氧血液从左心室泵出，经主动脉和动脉系统输送到全身各组织，然后含二氧化碳的血液通过静脉系统回到右心房。在肺循环中，含二氧化碳的血液从右心室泵出，经肺动脉到达肺部进行气体交换，然后含氧血液通过肺静脉回到左心房，完成循环。"
+            }
+          ]
+        }
+      }
+    };
+  },
+  
+  // 获取商业管理示例题库
+  getBusinessSampleBank() {
+    return {
+      name: "商业管理基础题库",
+      description: "包含商业管理知识的题目集合",
+      version: "1.0",
+      questions: [
+        {
+          id: "biz-001",
+          type: "single",
+          content: "SWOT分析中的'S'代表什么？",
+          options: [
+            "Strength（优势）",
+            "Strategy（策略）",
+            "Structure（结构）",
+            "System（系统）"
+          ],
+          answer: "A. Strength（优势）\n\n解析：SWOT分析是一种用于评估企业竞争地位的工具，其中'S'代表Strength（优势），'W'代表Weakness（劣势），'O'代表Opportunity（机会），'T'代表Threat（威胁）。"
+        },
+        {
+          id: "biz-002",
+          type: "multiple",
+          content: "以下哪些是有效的市场细分变量？（多选）",
+          options: [
+            "人口统计（如年龄、性别）",
+            "地理位置",
+            "心理图谱",
+            "产品颜色"
+          ],
+          answer: "A, B, C. 人口统计、地理位置、心理图谱\n\n解析：有效的市场细分变量包括人口统计变量（如年龄、性别、收入）、地理变量（如国家、城市）、心理图谱变量（如生活方式、价值观）和行为变量（如购买频率、忠诚度）。产品颜色是产品特性，不是市场细分变量。"
+        },
+        {
+          id: "biz-003",
+          type: "tf",
+          content: "边际成本是指生产一单位产品的总成本。",
+          options: ["正确", "错误"],
+          answer: "B. 错误\n\n解析：边际成本是指多生产一单位产品所增加的成本，而不是生产一单位产品的总成本。生产一单位产品的总成本是平均总成本。"
+        },
+        {
+          id: "biz-004",
+          type: "short",
+          content: "简述波特五力模型及其在竞争分析中的应用。",
+          options: [],
+          answer: "波特五力模型是由迈克尔·波特提出的用于分析行业竞争环境的框架，包括：供应商议价能力、购买者议价能力、新进入者威胁、替代品威胁以及行业内部竞争。该模型可以帮助企业了解行业结构、评估行业吸引力、识别竞争优势源泉，以及制定合适的竞争战略。企业可以通过分析这五种力量，找出自身在行业中的定位，并确定如何应对市场变化和竞争压力。"
+        }
+      ]
+    };
+  },
+  
+  // 获取空白题库模板
+  getEmptySampleBank() {
+    return {
+      name: "空白题库模板",
+      description: "使用此模板创建您自己的题库",
+      version: "1.0",
+      categories: {
+        "分类1": {
+          name: "分类1",
+          questions: [
+            {
+              id: "q-001",
+              type: "single",
+              content: "这是一个单选题示例",
+              options: [
+                "选项A",
+                "选项B",
+                "选项C",
+                "选项D"
+              ],
+              answer: "A. 选项A\n\n解析：这里是答案解析。"
+            },
+            {
+              id: "q-002",
+              type: "multiple",
+              content: "这是一个多选题示例（可选多项）",
+              options: [
+                "选项A",
+                "选项B",
+                "选项C",
+                "选项D"
+              ],
+              answer: "A, B. 选项A和选项B\n\n解析：这里是答案解析。"
+            },
+            {
+              id: "q-003",
+              type: "tf",
+              content: "这是一个判断题示例。",
+              options: ["正确", "错误"],
+              answer: "A. 正确\n\n解析：这里是答案解析。"
+            },
+            {
+              id: "q-004",
+              type: "short",
+              content: "这是一个简答题示例。",
+              options: [],
+              answer: "这里是简答题的答案和解析。可以包含多个段落，详细说明概念、原理等。"
+            }
+          ]
+        }
+      }
+    };
+  },
 };
 
 // 检查DOM是否已加载完成

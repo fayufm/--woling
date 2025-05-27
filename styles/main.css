@@ -203,6 +203,20 @@ body {
   color: #4a90e2;
 }
 
+/* 生成题目页面标题样式 */
+.generate-title {
+  font-size: 1.8rem;
+  display: inline-block;
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.text-center h1 {
+  display: inline-flex !important;
+  margin: 0 auto;
+}
+
 /* 步骤样式 */
 .step-container {
   max-width: 800px;
@@ -249,6 +263,13 @@ body {
 .button-group {
   display: flex;
   justify-content: space-between;
+  margin-top: 30px;
+}
+
+/* 居中显示按钮 */
+.step-1-btn-center {
+  display: flex;
+  justify-content: center;
   margin-top: 30px;
 }
 
@@ -914,6 +935,13 @@ body {
   z-index: 100;
 }
 
+/* 生成题目页面中的保存成功提示 */
+#questions-container .save-success-message {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+}
+
 .save-success-message i {
   margin-right: 8px;
   font-size: 1.1rem;
@@ -1004,4 +1032,230 @@ body {
 @keyframes bubbleHide {
   from { opacity: 1; transform: translateY(0); }
   to { opacity: 0; transform: translateY(-20px); }
+}
+
+/* 题库列表样式 */
+.question-bank-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 10px;
+  background-color: #f8f9fa;
+}
+
+.bank-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+}
+
+.bank-item:last-child {
+  border-bottom: none;
+}
+
+.bank-item:hover {
+  background-color: #f1f5f9;
+}
+
+.bank-item-info {
+  flex: 1;
+}
+
+.bank-item-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.bank-item-meta {
+  font-size: 0.85rem;
+  color: #64748b;
+  display: flex;
+  gap: 10px;
+}
+
+.bank-item-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.bank-format-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.bank-format-content {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  width: 80%;
+  max-width: 700px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.bank-format-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.bank-format-header h3 {
+  margin: 0;
+}
+
+.bank-format-close {
+  cursor: pointer;
+  font-size: 1.5rem;
+}
+
+.bank-format-example {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: monospace;
+  margin-top: 10px;
+}
+
+/* 设置区域样式 */
+.settings-section {
+  margin-bottom: 30px;
+  padding: 20px;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+/* 拖放上传区域样式 */
+.dropzone {
+  border: 2px dashed #cbd5e0;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  background-color: #f8fafc;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.dropzone:hover {
+  background-color: #edf2f7;
+  border-color: #a0aec0;
+}
+
+.dropzone.dragover {
+  background-color: #e6fffa;
+  border-color: #4fd1c5;
+}
+
+.dropzone-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.dropzone-content i {
+  font-size: 48px;
+  margin-bottom: 10px;
+  color: #4a90e2;
+}
+
+.dropzone-content p {
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #4a5568;
+}
+
+.dropzone-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* 黑暗主题下的拖放区域样式 */
+.theme-dark .dropzone {
+  background-color: #2d3748;
+  border-color: #4a5568;
+}
+
+.theme-dark .dropzone:hover {
+  background-color: #2d3748;
+  border-color: #718096;
+}
+
+.theme-dark .dropzone.dragover {
+  background-color: #234e52;
+  border-color: #38b2ac;
+}
+
+.theme-dark .dropzone-content p,
+.theme-dark .dropzone-content small {
+  color: #e2e8f0;
+}
+
+/* 题库样本下载按钮样式 */
+.sample-bank-container {
+  padding: 15px;
+  background-color: #f8fafc;
+  border-radius: 8px;
+  margin-top: 15px;
+  border: 1px solid #e2e8f0;
+}
+
+.sample-bank-container h5 {
+  margin-bottom: 10px;
+  color: #4a5568;
+}
+
+.sample-bank-container p {
+  margin-bottom: 15px;
+  color: #718096;
+}
+
+.sample-bank-options {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sample-bank-btn {
+  padding: 8px 16px;
+  background-color: #edf2f7;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #4a5568;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sample-bank-btn:hover {
+  background-color: #e2e8f0;
+}
+
+.sample-bank-btn i {
+  color: #4a90e2;
 } 
